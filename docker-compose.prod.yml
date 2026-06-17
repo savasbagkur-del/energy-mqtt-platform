@@ -5,12 +5,19 @@ services:
     restart: unless-stopped
     ports:
       - "${MQTT_PORT:-1883}:1883"
+      # MQTT over TLS (8883). EMQX ships a self-signed cert; for production replace the bundled
+      # cert under /opt/emqx/etc/certs or mount your own, and point devices at 8883.
+      - "${MQTT_TLS_PORT:-8883}:8883"
       - "${EMQX_DASHBOARD_PORT:-18083}:18083"
     environment:
       EMQX_NAME: emqx
       EMQX_HOST: 127.0.0.1
       EMQX_DASHBOARD__DEFAULT_USERNAME: ${MQTT_USERNAME}
       EMQX_DASHBOARD__DEFAULT_PASSWORD: ${MQTT_PASSWORD}
+      # NOTE: MQTT client authentication is NOT enabled by env here. In EMQX 5.x, enabling it
+      # requires configuring an authenticator (built-in database / password) + client credentials
+      # via the dashboard or a mounted config; see deploy/RUNBOOK.md "EMQX güvenliği". Do NOT set
+      # allow_anonymous=false without an authenticator or all clients (incl. the worker) are rejected.
     volumes:
       - /opt/emqx/data:/opt/emqx/data
       - /opt/emqx/log:/opt/emqx/log
@@ -117,3 +124,22 @@ services:
       timeout: 10s
       retries: 5
       start_period: 20s
+
+  # Optional TLS-terminating reverse proxy for the API. Enable with: --profile tls
+  # Requires infra/nginx/certs/{fullchain.pem,privkey.pem}. When used, consider changing the
+  # api service port mapping to "127.0.0.1:${API_PORT:-3000}:3000" so the API is only reachable
+  # through nginx (TLS).
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: communication-nginx
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro

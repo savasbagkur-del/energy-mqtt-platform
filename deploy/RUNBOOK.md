@@ -209,3 +209,58 @@ $COMPOSE up -d --scale mqtt-worker=3
 ./deploy/backup.sh               # yedek al
 ./deploy/restore.sh <dump>       # geri yükle (yıkıcı)
 ```
+
+---
+
+## 11. AWS kurulum checklist (Dalga 4)
+
+Sıralı adımlar. Doğrulama: imaj build + migrate + up + healthcheck zinciri yerelde uçtan uca
+test edildi; aşağıdakiler bunu gerçek altyapıya taşır.
+
+1. **RDS PostgreSQL** oluştur (16+). Sadece EC2 security group'undan 5432'ye izin ver. Endpoint,
+   db adı, kullanıcı, parolayı not al.
+2. **EC2** (Ubuntu 22.04 / Amazon Linux 2023) oluştur. Docker Engine + Compose plugin kur.
+3. **Security group (EC2)** inbound:
+   - `22/tcp` → sadece admin IP
+   - `443/tcp` → API kullanıcı ağı (nginx TLS); `80/tcp` → 443'e yönlendirme
+   - `8883/tcp` → cihaz ağları (MQTT over TLS) — düz `1883`'ü mümkünse dışa açma
+   - `18083/tcp` → EMQX dashboard, sadece admin IP
+4. Kodu sunucuya al (`/opt/communication-mvp`), `.env.production.example` → `.env.production` kopyala, doldur:
+   - `POSTGRES_*` (RDS), güçlü `POSTGRES_PASSWORD`
+   - `API_AUTH_TOKEN` = `openssl rand -hex 32`
+   - `MQTT_USERNAME`/`MQTT_PASSWORD` (güçlü), `MQTT_CLIENT_ID` benzersiz
+   - `DEVICE_WHITELIST_ENABLED` (gerçek cihazları kaydettikten sonra `true`)
+5. **TLS sertifikası**: domain → API için sertifika al (Let's Encrypt/ACM). `fullchain.pem` +
+   `privkey.pem` dosyalarını `infra/nginx/certs/` altına koy.
+6. **EMQX güvenliği** (Bölüm 12) — kimlik doğrulamayı aç ve cihaz kimlik bilgilerini ekle, TLS cert'i değiştir.
+7. **Başlat**: `./deploy/bootstrap.sh` (build + migrate + up + health). TLS proxy için:
+   `docker compose --env-file .env.production -f docker-compose.prod.yml --profile tls up -d`
+8. **Doğrula**: `curl https://<domain>/health`, `/ready`; EMQX dashboard'da cihaz bağlantısı; worker `:9100/ready`.
+9. **Yedekleme cron'u** kur (Bölüm 4). Yedekleri S3'e kopyala.
+10. **Gerçek cihazları kaydet** (`devices.html` veya CSV import), sonra whitelist'i aç ve worker'ı yeniden başlat.
+
+> API'yi yalnızca nginx üzerinden erişilebilir kılmak için `docker-compose.prod.yml`'de api port
+> eşlemesini `"127.0.0.1:${API_PORT}:3000"` yap (dışarıdan doğrudan 3000 kapanır).
+
+---
+
+## 12. EMQX güvenliği ve MQTT TLS
+
+EMQX 5.x'te kimlik doğrulama **authenticator zinciri** ile yapılır; compose env'inde
+`allow_anonymous=false` tek başına TÜM bağlantıları (worker dahil) reddeder — yapma.
+
+**Kimlik doğrulamayı açma (built-in database):**
+1. Dashboard → `http://<EC2_IP>:18083` (giriş: `.env.production` MQTT_USERNAME/PASSWORD).
+2. Access Control → Authentication → Create → **Password-Based: Built-in Database**.
+3. Authentication → Users → cihazlar ve worker için kullanıcı/parola ekle (worker'ın
+   `MQTT_USERNAME`/`MQTT_PASSWORD` değerleriyle eşleşmeli).
+4. (Opsiyonel) Access Control → Authorization (ACL) ile her client'ı kendi topic ön ekine kısıtla.
+
+> Alternatif: `infra/emqx/` altına bir `emqx.conf`/`acl` mount edip kod ile yönet (GitOps). MVP için
+> dashboard yeterli; kalıcılık için EMQX `data/` hacmi zaten mount'lu (`/opt/emqx/data`).
+
+**MQTT over TLS (8883):** EMQX self-signed cert ile 8883'te hazır gelir. Üretim için bundled cert'i
+gerçek sertifikayla değiştir (`/opt/emqx/etc/certs/` altına mount) ve cihazları 8883'e yönlendir.
+
+**API → EMQX:** worker/api compose ağında `MQTT_HOST=emqx` ile bağlanır; tek-host kurulumda
+`MQTT_HOST` EMQX servis adıdır. Ayrı broker (örn. mevcut `51.20.106.176`) kullanıyorsan oraya yönlendir.

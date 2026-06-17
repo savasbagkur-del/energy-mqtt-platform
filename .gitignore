@@ -16,6 +16,11 @@ coverage/
 # Database backups (generated)
 backups/
 
+# TLS certificates / keys (provide at deploy time, never commit)
+infra/nginx/certs/
+*.pem
+*.key
+
 # Logs
 *.log
 npm-debug.log*
