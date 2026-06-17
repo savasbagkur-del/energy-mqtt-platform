@@ -179,6 +179,10 @@ export interface AppConfig {
    * publishRequireRecentTelemetrySec. Removes the manual per-device knob.
    */
   adaptiveGatingEnabled: boolean;
+  /** Port for the worker's HTTP health/readiness/metrics endpoints (orchestrator probes + scrape). */
+  workerHealthPort: number;
+  /** Max staleness (sec) of the worker publish loop before /ready reports not_ready. */
+  workerReadyMaxLoopAgeSec: number;
 }
 
 export const appConfig: AppConfig = Object.freeze({
@@ -214,5 +218,7 @@ export const appConfig: AppConfig = Object.freeze({
   publishRequireRecentTelemetrySec: readNonNegativeInt(process.env.PUBLISH_REQUIRE_TELEMETRY_SEC, 0),
   switchDecodeFromAdfState: readBooleanWithDefault(process.env.SWITCH_DECODE_FROM_ADFSTATE, true),
   adaptiveTimingEnabled: readBooleanWithDefault(process.env.ADAPTIVE_TIMING_ENABLED, true),
-  adaptiveGatingEnabled: readBooleanWithDefault(process.env.ADAPTIVE_GATING_ENABLED, true)
+  adaptiveGatingEnabled: readBooleanWithDefault(process.env.ADAPTIVE_GATING_ENABLED, true),
+  workerHealthPort: readPositiveInt(process.env.WORKER_HEALTH_PORT, 9100),
+  workerReadyMaxLoopAgeSec: readPositiveInt(process.env.WORKER_READY_MAX_LOOP_AGE_SEC, 30)
 });

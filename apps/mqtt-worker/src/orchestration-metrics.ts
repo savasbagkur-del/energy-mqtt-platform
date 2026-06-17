@@ -57,6 +57,21 @@ export const orchestrationMetrics = {
     pushSample(verifyLatencyMs, ms);
   },
 
+  /** Read-only snapshot for HTTP/metrics exposure (no logging side effect). */
+  snapshot(): {
+    counters: Record<keyof typeof counters, number>;
+    ackLatencyMs: { p50: number | null; p95: number | null; sampleCount: number };
+    verifyLatencyMs: { p50: number | null; p95: number | null; sampleCount: number };
+  } {
+    const a = [...ackLatencyMs].sort((x, y) => x - y);
+    const v = [...verifyLatencyMs].sort((x, y) => x - y);
+    return {
+      counters: { ...counters },
+      ackLatencyMs: { p50: percentile(a, 50), p95: percentile(a, 95), sampleCount: a.length },
+      verifyLatencyMs: { p50: percentile(v, 50), p95: percentile(v, 95), sampleCount: v.length }
+    };
+  },
+
   emitSnapshot(): void {
     const a = [...ackLatencyMs].sort((x, y) => x - y);
     const v = [...verifyLatencyMs].sort((x, y) => x - y);

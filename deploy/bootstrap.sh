@@ -34,8 +34,50 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
+COMPOSE=(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}")
+
+echo "[bootstrap] building images (api + worker)..."
+"${COMPOSE[@]}" build
+
+echo "[bootstrap] running database migrations..."
+"${COMPOSE[@]}" run --rm migrate
+
 echo "[bootstrap] starting production stack..."
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" up -d
+"${COMPOSE[@]}" up -d
 
 echo "[bootstrap] current service status:"
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps
+"${COMPOSE[@]}" ps
+
+echo "[bootstrap] waiting for health checks..."
+API_PORT_VALUE="$(grep -E '^API_PORT=' "${ENV_FILE}" | head -n1 | cut -d= -f2 | tr -d '[:space:]')"
+WORKER_PORT_VALUE="$(grep -E '^WORKER_HEALTH_PORT=' "${ENV_FILE}" | head -n1 | cut -d= -f2 | tr -d '[:space:]')"
+API_PORT_VALUE="${API_PORT_VALUE:-3000}"
+WORKER_PORT_VALUE="${WORKER_PORT_VALUE:-9100}"
+
+check_health() {
+  local name="$1" url="$2" ok=0
+  for _ in $(seq 1 30); do
+    if curl -fsS "${url}" >/dev/null 2>&1; then
+      echo "[bootstrap]   ${name}: healthy (${url})"
+      ok=1
+      break
+    fi
+    sleep 3
+  done
+  if [[ "${ok}" -ne 1 ]]; then
+    echo "[bootstrap]   ${name}: NOT healthy after timeout (${url})"
+    return 1
+  fi
+}
+
+rc=0
+check_health "api" "http://127.0.0.1:${API_PORT_VALUE}/health" || rc=1
+check_health "mqtt-worker" "http://127.0.0.1:${WORKER_PORT_VALUE}/health" || rc=1
+
+if [[ "${rc}" -ne 0 ]]; then
+  echo "[bootstrap] one or more services failed health checks; inspect logs:"
+  echo "[bootstrap]   ${COMPOSE[*]} logs --tail=50"
+  exit 1
+fi
+
+echo "[bootstrap] done. API /metrics: http://127.0.0.1:${API_PORT_VALUE}/metrics  worker /metrics: http://127.0.0.1:${WORKER_PORT_VALUE}/metrics"

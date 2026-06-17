@@ -97,6 +97,27 @@ const dbPool = createDbPool({
   password: appConfig.postgresPassword ?? "postgres"
 });
 
+const apiStartedAt = Date.now();
+
+// Cached DB health so a burst of probes/scrapes cannot stampede the pool.
+let dbUp = false;
+let lastDbPingAt = 0;
+const DB_PING_TTL_MS = 3000;
+const pingDb = async (): Promise<boolean> => {
+  const now = Date.now();
+  if (now - lastDbPingAt < DB_PING_TTL_MS) {
+    return dbUp;
+  }
+  lastDbPingAt = now;
+  try {
+    await dbPool.query("SELECT 1");
+    dbUp = true;
+  } catch {
+    dbUp = false;
+  }
+  return dbUp;
+};
+
 app.get("/health", (_req, res) => {
   res.status(200).json({
     status: "ok",
@@ -104,7 +125,7 @@ app.get("/health", (_req, res) => {
   });
 });
 
-app.get("/ready", (_req, res) => {
+app.get("/ready", async (_req, res) => {
   const config = {
     apiPort: appConfig.apiPort !== null,
     postgresHost: appConfig.postgresHost !== null,
@@ -112,15 +133,38 @@ app.get("/ready", (_req, res) => {
     mqttHost: appConfig.mqttHost !== null,
     mqttPort: appConfig.mqttPort !== null
   };
+  const configOk = Object.values(config).every(Boolean);
+  const dbHealthy = await pingDb();
+  const ready = configOk && dbHealthy;
 
-  const status = Object.values(config).every(Boolean) ? "ready" : "not_ready";
-
-  res.status(200).json({
-    status,
+  res.status(ready ? 200 : 503).json({
+    status: ready ? "ready" : "not_ready",
     service: "api",
     nodeEnv: appConfig.nodeEnv,
+    checks: { config: configOk, dbUp: dbHealthy },
     config
   });
+});
+
+app.get("/metrics", async (_req, res) => {
+  const dbHealthy = await pingDb();
+  const mem = process.memoryUsage();
+  const uptimeSec = Math.round((Date.now() - apiStartedAt) / 1000);
+  const lines = [
+    "# HELP api_up API process is running.",
+    "# TYPE api_up gauge",
+    "api_up 1",
+    "# HELP api_uptime_seconds Seconds since API start.",
+    "# TYPE api_uptime_seconds gauge",
+    `api_uptime_seconds ${uptimeSec}`,
+    "# HELP api_db_up 1 if the last DB ping succeeded.",
+    "# TYPE api_db_up gauge",
+    `api_db_up ${dbHealthy ? 1 : 0}`,
+    "# HELP api_process_resident_memory_bytes Resident set size in bytes.",
+    "# TYPE api_process_resident_memory_bytes gauge",
+    `api_process_resident_memory_bytes ${mem.rss}`
+  ];
+  res.status(200).set("content-type", "text/plain; version=0.0.4").send(lines.join("\n") + "\n");
 });
 
 app.get("/messages/raw", async (_req, res) => {

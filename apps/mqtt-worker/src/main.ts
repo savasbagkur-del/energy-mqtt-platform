@@ -66,8 +66,14 @@ import {
 } from "./command-observability.js";
 import { createSimulatorService } from "./simulator.js";
 import { processDesiredStateReconciliation } from "./reconciler.js";
+import { createWorkerHealthServer } from "./health-server.js";
 
 const log = createLogger("mqtt-worker");
+
+// Liveness state surfaced by the health/metrics HTTP server.
+let mqttConnected = false;
+let lastPublishLoopAt: number | null = null;
+let lastReconcileLoopAt: number | null = null;
 
 const env = {
   nodeEnv: appConfig.nodeEnv,
@@ -2752,7 +2758,8 @@ console.log("[mqtt-worker] worker booted", {
   publishRequireRecentTelemetrySec: appConfig.publishRequireRecentTelemetrySec,
   switchDecodeFromAdfState: appConfig.switchDecodeFromAdfState,
   adaptiveTimingEnabled: appConfig.adaptiveTimingEnabled,
-  adaptiveGatingEnabled: appConfig.adaptiveGatingEnabled
+  adaptiveGatingEnabled: appConfig.adaptiveGatingEnabled,
+  workerHealthPort: appConfig.workerHealthPort
 });
 
 const metricsInterval = setInterval(() => {
@@ -2780,6 +2787,7 @@ dbPool
   });
 
 client.on("connect", (packet) => {
+  mqttConnected = true;
   console.log("[mqtt-worker] connected", {
     brokerUrl,
     sessionPresent: packet.sessionPresent
@@ -2801,14 +2809,17 @@ client.on("reconnect", () => {
 });
 
 client.on("offline", () => {
+  mqttConnected = false;
   console.warn("[mqtt-worker] offline");
 });
 
 client.on("close", () => {
+  mqttConnected = false;
   console.warn("[mqtt-worker] connection closed");
 });
 
 client.on("end", () => {
+  mqttConnected = false;
   console.warn("[mqtt-worker] client ended");
 });
 
@@ -2873,6 +2884,7 @@ client.on("message", (topic, payload) => {
 });
 
 setInterval(() => {
+  lastPublishLoopAt = Date.now();
   void processPendingCommands();
   // Timeout/expiry sweep is global bookkeeping: run single-flight across instances via advisory
   // lock (publish claim + reconciler lease remain parallel for throughput). A transient DB blip
@@ -2912,8 +2924,24 @@ setInterval(() => {
     })
     .finally(() => {
       reconcileLoopActive = false;
+      lastReconcileLoopAt = Date.now();
     });
 }, appConfig.reconcileIntervalMs);
+
+// Headless worker liveness/readiness/metrics for orchestrator probes and scraping.
+const healthServer = createWorkerHealthServer({
+  port: appConfig.workerHealthPort,
+  pool: dbPool,
+  readyMaxLoopAgeSec: appConfig.workerReadyMaxLoopAgeSec,
+  log,
+  getState: () => ({
+    mqttConnected,
+    inboundQueueDepth: inboundQueue.length,
+    inboundActive,
+    lastPublishLoopAt,
+    lastReconcileLoopAt
+  })
+});
 
 // Last-resort safety net: a resilient "never give up" worker must not die from a transient
 // rejection/fault (DB blip, broker hiccup). Log loudly and keep running; the periodic loops retry.
@@ -2929,7 +2957,14 @@ process.on("uncaughtException", (error) => {
   });
 });
 
-process.on("SIGINT", async () => {
+const shutdown = async (): Promise<void> => {
+  healthServer.close();
   await dbPool.end();
   client.end(true);
+};
+process.on("SIGINT", () => {
+  void shutdown();
+});
+process.on("SIGTERM", () => {
+  void shutdown();
 });

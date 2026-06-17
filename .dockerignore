@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+.git
+.gitignore
+**/*.log
+terminals
+*.env
+.env
+.env.*
+!.env.production.example
+**/*.test.ts
+*_results.json
+cal.json
+endurance.json
+docs
+README*.md
