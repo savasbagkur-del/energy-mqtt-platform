@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sayaç Yönetimi — Kayıt / Whitelist</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #0d1117; color: #e6edf3; }
+  header { padding: 14px 20px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  header h1 { font-size: 16px; margin: 0; margin-right: auto; }
+  .meta { font-size: 12px; color: #8b949e; }
+  a { color: #58a6ff; text-decoration: none; }
+  input, select, textarea, button { font: inherit; background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 7px 9px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #58a6ff; }
+  button { cursor: pointer; background: #21262d; }
+  button:hover { border-color: #58a6ff; }
+  button.primary { background: #238636; border-color: #2ea043; }
+  button.primary:hover { background: #2ea043; }
+  button.warn { background: #9e6a03; border-color: #bb8009; }
+  .wrap { padding: 18px 20px; max-width: 1280px; margin: 0 auto; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .toolbar .spacer { margin-left: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  th { color: #8b949e; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:hover td { background: #11161d; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .pill.registered { background: #18341f; color: #56d364; }
+  .pill.auto { background: #1c2a3a; color: #58a6ff; }
+  .pill.quarantined { background: #3a1d1d; color: #ff7b72; }
+  .pill.life { background: #2d2a14; color: #e3b341; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 14px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 11px; color: #8b949e; }
+  .hidden { display: none; }
+  #log { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; max-height: 140px; overflow: auto; color: #8b949e; }
+  .row-actions button { padding: 4px 8px; font-size: 12px; }
+  .count { font-size: 12px; color: #8b949e; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sayaç Yönetimi</h1>
+  <a href="control.html">→ Tekil Kontrol Paneli</a>
+  <label class="meta" for="token">Token</label>
+  <input id="token" type="password" placeholder="API token (varsa)" size="16" />
+</header>
+
+<div class="wrap">
+  <div class="toolbar">
+    <input id="search" placeholder="Ara: SN / etiket / abone / müşteri" size="32" />
+    <select id="statusFilter">
+      <option value="">Tüm durumlar</option>
+      <option value="registered">Kayıtlı (registered)</option>
+      <option value="auto">Otomatik (auto)</option>
+      <option value="quarantined">Karantina (quarantined)</option>
+    </select>
+    <button id="btnReload">Yenile</button>
+    <span class="count" id="count"></span>
+    <span class="spacer"></span>
+    <button id="btnNew" class="primary">+ Yeni Sayaç Kaydet</button>
+    <button id="btnImport">CSV İçe Aktar</button>
+  </div>
+
+  <!-- Register / edit form -->
+  <div id="form" class="card hidden">
+    <h2 id="formTitle">Yeni Sayaç Kaydet</h2>
+    <div class="grid">
+      <div class="field"><label>SN *</label><input id="f_sn" /></div>
+      <div class="field"><label>Etiket / Ad</label><input id="f_label" /></div>
+      <div class="field"><label>Ürün anahtarı (product_key)</label><input id="f_product_key" /></div>
+      <div class="field"><label>Abone / Sözleşme No</label><input id="f_subscriber_no" /></div>
+      <div class="field"><label>Müşteri</label>
+        <div style="display:flex; gap:6px;">
+          <select id="f_customer_id" style="flex:1;"></select>
+          <button id="btnNewCustomer" title="Yeni müşteri">+</button>
+        </div>
+      </div>
+      <div class="field"><label>Mülk tipi</label><select id="f_property_type_id"></select></div>
+      <div class="field"><label>Tarife</label><input id="f_tariff" /></div>
+      <div class="field"><label>Bölge</label><input id="f_region" /></div>
+      <div class="field"><label>Bayi</label><input id="f_dealer" /></div>
+      <div class="field"><label>Adres</label><input id="f_address_line" /></div>
+      <div class="field"><label>İlçe</label><input id="f_district" /></div>
+      <div class="field"><label>İl</label><input id="f_city" /></div>
+      <div class="field"><label>Kurulum tarihi</label><input id="f_install_date" type="date" /></div>
+      <div class="field"><label>Enlem (lat)</label><input id="f_lat" type="number" step="any" /></div>
+      <div class="field"><label>Boylam (lng)</label><input id="f_lng" type="number" step="any" /></div>
+      <div class="field" style="grid-column: 1 / -1;"><label>Not</label><textarea id="f_notes" rows="2"></textarea></div>
+    </div>
+    <div style="margin-top:12px; display:flex; gap:8px;">
+      <button id="btnSave" class="primary">Kaydet</button>
+      <button id="btnCancel">Vazgeç</button>
+    </div>
+  </div>
+
+  <!-- CSV import -->
+  <div id="importBox" class="card hidden">
+    <h2>CSV İçe Aktarma</h2>
+    <p class="meta">Başlık satırı zorunlu. Desteklenen kolonlar: <code>sn</code> (zorunlu), <code>label</code>, <code>product_key</code>, <code>subscriber_no</code>, <code>customer_id</code>, <code>property_type_code</code> (ev/daire/yurt/dukkan/ofis/fabrika/diger), <code>address_line</code>, <code>district</code>, <code>city</code>, <code>tariff</code>, <code>region</code>, <code>dealer</code>, <code>install_date</code>, <code>notes</code>.</p>
+    <textarea id="csvText" rows="8" style="width:100%;" placeholder="sn,label,subscriber_no,property_type_code&#10;24042809890002,Daire 3,ABN-1001,daire"></textarea>
+    <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
+      <input id="csvFile" type="file" accept=".csv,text/csv" />
+      <button id="btnDoImport" class="primary">İçe Aktar</button>
+      <button id="btnCancelImport">Kapat</button>
+      <span class="meta" id="importResult"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr>
+        <th>SN</th><th>Etiket</th><th>Müşteri</th><th>Mülk</th><th>Abone No</th>
+        <th>Durum</th><th>Yaşam D.</th><th>Son görülme</th><th></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Günlük</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const log = (m) => { const t = new Date().toLocaleTimeString(); $("log").textContent = `[${t}] ${m}\n` + $("log").textContent; };
+const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])));
+
+// token persistence (shared key with control.html)
+(() => { const s = localStorage.getItem("apiToken"); if (s) $("token").value = s; })();
+$("token").addEventListener("change", () => localStorage.setItem("apiToken", $("token").value.trim()));
+const getToken = () => ($("token").value || localStorage.getItem("apiToken") || "").trim();
+
+async function api(method, path, body, asText) {
+  const headers = {};
+  const token = getToken();
+  if (token) headers["authorization"] = `Bearer ${token}`;
+  let payload;
+  if (asText) { headers["content-type"] = "text/csv"; payload = body; }
+  else if (body !== undefined) { headers["content-type"] = "application/json"; payload = JSON.stringify(body); }
+  const res = await fetch(path, { method, headers, body: payload });
+  if (res.status === 401) log("401: yetkisiz — geçerli API token girin");
+  let json = null; try { json = await res.json(); } catch {}
+  return { status: res.status, json };
+}
+
+let propertyTypes = [];
+let customers = [];
+
+function fillSelect(sel, items, valueKey, labelKey, blank) {
+  sel.innerHTML = (blank ? `<option value="">${blank}</option>` : "") +
+    items.map((it) => `<option value="${esc(it[valueKey])}">${esc(it[labelKey])}</option>`).join("");
+}
+
+async function loadLookups() {
+  const pt = await api("GET", "/property-types");
+  if (pt.json && pt.json.items) { propertyTypes = pt.json.items; fillSelect($("f_property_type_id"), propertyTypes, "id", "label", "— seçin —"); }
+  const cu = await api("GET", "/customers");
+  if (cu.json && cu.json.items) { customers = cu.json.items; fillSelect($("f_customer_id"), customers, "id", "name", "— yok —"); }
+}
+
+function statusPill(s) { return `<span class="pill ${esc(s)}">${esc(s)}</span>`; }
+function ptLabel(r) { return r.property_type_label || ""; }
+const tFmt = (v) => (v ? new Date(v).toLocaleString() : "—");
+
+async function reload() {
+  const q = $("search").value.trim();
+  const status = $("statusFilter").value;
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (status) params.set("status", status);
+  const res = await api("GET", `/registry/devices?${params.toString()}`);
+  if (res.status !== 200 || !res.json) { log(`Liste alınamadı (${res.status})`); return; }
+  const items = res.json.items || [];
+  $("count").textContent = `${res.json.count} cihaz`;
+  $("rows").innerHTML = items.map((r) => {
+    const approve = r.registry_status === "quarantined"
+      ? `<button class="warn" data-approve="${esc(r.sn)}">Onayla</button>` : "";
+    return `<tr>
+      <td><code>${esc(r.sn)}</code></td>
+      <td>${esc(r.label)}</td>
+      <td>${esc(r.customer_name)}</td>
+      <td>${esc(ptLabel(r))}</td>
+      <td>${esc(r.subscriber_no)}</td>
+      <td>${statusPill(r.registry_status)}</td>
+      <td><span class="pill life">${esc(r.lifecycle_status)}</span></td>
+      <td class="meta">${tFmt(r.last_seen_at)}</td>
+      <td class="row-actions">${approve}
+        <button data-edit="${esc(r.sn)}">Düzenle</button>
+        <a href="control.html?sn=${encodeURIComponent(r.sn)}"><button>Kontrol</button></a>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+// ---- form ----
+function openForm(row) {
+  $("form").classList.remove("hidden");
+  $("importBox").classList.add("hidden");
+  const set = (id, v) => { $(id).value = v == null ? "" : v; };
+  $("formTitle").textContent = row ? `Düzenle: ${row.sn}` : "Yeni Sayaç Kaydet";
+  $("f_sn").value = row ? row.sn : "";
+  $("f_sn").disabled = !!row;
+  set("f_label", row && row.label); set("f_product_key", row && row.product_key);
+  set("f_subscriber_no", row && row.subscriber_no);
+  $("f_customer_id").value = row && row.customer_id ? row.customer_id : "";
+  $("f_property_type_id").value = row && row.property_type_id ? row.property_type_id : "";
+  set("f_tariff", row && row.tariff); set("f_region", row && row.region); set("f_dealer", row && row.dealer);
+  set("f_address_line", row && row.address_line); set("f_district", row && row.district); set("f_city", row && row.city);
+  set("f_install_date", row && row.install_date ? String(row.install_date).slice(0, 10) : "");
+  set("f_lat", row && row.lat); set("f_lng", row && row.lng); set("f_notes", row && row.notes);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function formBody() {
+  const v = (id) => { const x = $(id).value.trim(); return x === "" ? undefined : x; };
+  const num = (id) => { const x = $(id).value.trim(); return x === "" ? undefined : Number(x); };
+  return {
+    sn: $("f_sn").value.trim(),
+    label: v("f_label"), product_key: v("f_product_key"), subscriber_no: v("f_subscriber_no"),
+    customer_id: v("f_customer_id"), property_type_id: num("f_property_type_id"),
+    tariff: v("f_tariff"), region: v("f_region"), dealer: v("f_dealer"),
+    address_line: v("f_address_line"), district: v("f_district"), city: v("f_city"),
+    install_date: v("f_install_date"), lat: num("f_lat"), lng: num("f_lng"), notes: v("f_notes")
+  };
+}
+
+$("btnNew").onclick = () => openForm(null);
+$("btnCancel").onclick = () => $("form").classList.add("hidden");
+$("btnSave").onclick = async () => {
+  const body = formBody();
+  if (!body.sn) { log("SN zorunlu"); return; }
+  const editing = $("f_sn").disabled;
+  const res = editing
+    ? await api("PATCH", `/registry/devices/${encodeURIComponent(body.sn)}`, body)
+    : await api("POST", "/registry/devices", body);
+  if (res.status === 200 || res.status === 201) { log(`Kaydedildi: ${body.sn}`); $("form").classList.add("hidden"); reload(); }
+  else { log(`Kayıt hatası (${res.status}): ${res.json && res.json.error || ""}`); }
+};
+
+$("btnNewCustomer").onclick = async () => {
+  const name = prompt("Müşteri adı / unvanı:");
+  if (!name) return;
+  const res = await api("POST", "/customers", { name });
+  if (res.status === 201) { await loadLookups(); $("f_customer_id").value = res.json.id; log(`Müşteri eklendi: ${name}`); }
+  else log(`Müşteri eklenemedi (${res.status})`);
+};
+
+// ---- approve / edit (event delegation) ----
+$("rows").addEventListener("click", async (e) => {
+  const ap = e.target.getAttribute && e.target.getAttribute("data-approve");
+  const ed = e.target.getAttribute && e.target.getAttribute("data-edit");
+  if (ap) {
+    const res = await api("POST", `/registry/devices/${encodeURIComponent(ap)}/approve`);
+    if (res.status === 200) { log(`Onaylandı (whitelist): ${ap}`); reload(); }
+    else log(`Onay hatası (${res.status})`);
+  } else if (ed) {
+    const res = await api("GET", `/registry/devices/${encodeURIComponent(ed)}`);
+    if (res.status === 200) openForm(res.json); else log(`Kayıt alınamadı (${res.status})`);
+  }
+});
+
+// ---- CSV import ----
+$("btnImport").onclick = () => { $("importBox").classList.remove("hidden"); $("form").classList.add("hidden"); };
+$("btnCancelImport").onclick = () => $("importBox").classList.add("hidden");
+$("csvFile").onchange = async () => { const f = $("csvFile").files[0]; if (f) $("csvText").value = await f.text(); };
+$("btnDoImport").onclick = async () => {
+  const text = $("csvText").value.trim();
+  if (!text) { log("CSV boş"); return; }
+  const res = await api("POST", "/registry/devices/import", text, true);
+  if (res.status === 200 && res.json) {
+    const r = res.json;
+    $("importResult").textContent = `Toplam ${r.total}, başarılı ${r.ok}, hatalı ${(r.rejected || []).length}`;
+    log(`İçe aktarma: ${r.ok}/${r.total} başarılı`);
+    if (r.rejected && r.rejected.length) log(`Hatalı: ${r.rejected.map((x) => x.sn + ":" + x.error).join(", ")}`);
+    reload();
+  } else log(`İçe aktarma hatası (${res.status})`);
+};
+
+$("btnReload").onclick = reload;
+$("btnNew").onclick = () => openForm(null);
+let searchTimer;
+$("search").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(reload, 300); });
+$("statusFilter").addEventListener("change", reload);
+
+(async () => { await loadLookups(); await reload(); })();
+</script>
+</body>
+</html>

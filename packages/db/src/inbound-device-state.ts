@@ -25,10 +25,16 @@ export const resolveInboundDevice = (
 /**
  * After raw row insert: upsert device row and conditionally update latest_state.
  */
+export interface ApplyInboundOptions {
+  /** When true, unknown SNs are recorded as 'quarantined' (visible, not managed). */
+  whitelistEnabled?: boolean;
+}
+
 export const applyInboundDeviceAndLatestState = async (
   pool: Pool,
   normalized: NormalizedIncomingMessage,
-  receivedAt: Date
+  receivedAt: Date,
+  options: ApplyInboundOptions = {}
 ): Promise<void> => {
   const resolved = resolveInboundDevice(normalized);
   if (!resolved) {
@@ -56,7 +62,8 @@ export const applyInboundDeviceAndLatestState = async (
     devname: isLogin ? meta.devname : null,
     softcode: isLogin ? meta.softcode : null,
     softversion: isLogin ? meta.softversion : null,
-    network: isLogin ? meta.network : null
+    network: isLogin ? meta.network : null,
+    whitelistEnabled: options.whitelistEnabled ?? false
   };
 
   const latestInput: UpsertLatestStateInput = {

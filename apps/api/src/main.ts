@@ -35,8 +35,20 @@ import {
   getPresence,
   decodeSwitchFromAdfState1,
   getDeviceCadence,
-  deriveAdaptiveTiming
+  deriveAdaptiveTiming,
+  isManagedRegistryStatus,
+  listPropertyTypes,
+  createPropertyType,
+  listCustomers,
+  createCustomer,
+  registerDevice,
+  bulkRegisterDevices,
+  getDeviceRegistry,
+  listDevicesRegistry,
+  approveQuarantinedDevice,
+  setDeviceLifecycle
 } from "@communication/db";
+import type { DeviceMetadataInput, ListDevicesRegistryFilter } from "@communication/db";
 import type { CommandType, UpdatePolicyProfileInput } from "@communication/db";
 
 /** Matches node-pg `DatabaseError` without importing `pg` in this package. */
@@ -86,7 +98,8 @@ const readPolicyProfileIdFromBody = (body: Record<string, unknown>): string | nu
 };
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "8mb" }));
+app.use(express.text({ type: ["text/csv", "text/plain"], limit: "8mb" }));
 // Static manual-test control UI (served same-origin so the page can call the API without CORS).
 // Served before auth so the page itself loads and can prompt for the token.
 app.use(express.static(path.join(process.cwd(), "public")));
@@ -225,6 +238,9 @@ const createDeviceCommand = async (
   if (!device || !device.product_key) {
     return null;
   }
+  if (!isManagedRegistryStatus(device.registry_status)) {
+    throw new Error("device_not_registered");
+  }
 
   if (idempotencyKey) {
     const existing = await listCommandsBySn(dbPool, sn, 50);
@@ -317,6 +333,9 @@ const setDesiredSwitchForDevice = async (
   if (!device || !device.product_key) {
     return null;
   }
+  if (!isManagedRegistryStatus(device.registry_status)) {
+    throw new Error("device_not_registered");
+  }
   const result = await upsertDesiredSwitch(dbPool, {
     sn,
     productKey: device.product_key,
@@ -385,6 +404,10 @@ app.post("/devices/:sn/commands/refresh", async (req, res) => {
       res.status(429).json({ error: "command_switch_budget_exceeded" });
       return;
     }
+    if (message === "device_not_registered") {
+      res.status(403).json({ error: "device_not_registered", detail: "Device is quarantined; register it before sending commands." });
+      return;
+    }
     console.error("[api] failed to create refresh command", { sn, message });
     res.status(500).json({ error: "failed_to_create_command" });
   }
@@ -418,6 +441,10 @@ const handleForceSwitch = async (req: express.Request, res: express.Response, va
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown desired switch error";
+    if (message === "device_not_registered") {
+      res.status(403).json({ error: "device_not_registered", detail: "Device is quarantined; register it before control." });
+      return;
+    }
     console.error("[api] failed to set desired switch", { sn, value, message });
     res.status(500).json({ error: "failed_to_set_desired_switch" });
   }
@@ -455,6 +482,10 @@ app.put("/devices/:sn/desired/switch", async (req, res) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown desired switch error";
+    if (message === "device_not_registered") {
+      res.status(403).json({ error: "device_not_registered", detail: "Device is quarantined; register it before control." });
+      return;
+    }
     console.error("[api] failed to put desired switch", { sn, value, message });
     res.status(500).json({ error: "failed_to_set_desired_switch" });
   }
@@ -910,6 +941,277 @@ app.get("/devices", async (_req, res) => {
     const message = error instanceof Error ? error.message : "unknown db read error";
     console.error("[api] failed to list devices", { message });
     res.status(500).json({ error: "failed_to_list_devices" });
+  }
+});
+
+// ---- Device registry (customers, property types, registration, whitelist) ----
+
+app.get("/property-types", async (_req, res) => {
+  try {
+    res.status(200).json({ items: await listPropertyTypes(dbPool) });
+  } catch (error) {
+    console.error("[api] failed to list property types", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_property_types" });
+  }
+});
+
+app.post("/property-types", async (req, res) => {
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+  const code = typeof body.code === "string" ? body.code.trim() : "";
+  const label = typeof body.label === "string" ? body.label.trim() : "";
+  if (!code || !label) {
+    res.status(400).json({ error: "code_and_label_required" });
+    return;
+  }
+  try {
+    const row = await createPropertyType(
+      dbPool,
+      typeof body.sortOrder === "number" ? { code, label, sortOrder: body.sortOrder } : { code, label }
+    );
+    res.status(201).json(row);
+  } catch (error) {
+    console.error("[api] failed to create property type", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_create_property_type" });
+  }
+});
+
+app.get("/customers", async (_req, res) => {
+  try {
+    res.status(200).json({ items: await listCustomers(dbPool) });
+  } catch (error) {
+    console.error("[api] failed to list customers", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_customers" });
+  }
+});
+
+app.post("/customers", async (req, res) => {
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) {
+    res.status(400).json({ error: "name_required" });
+    return;
+  }
+  try {
+    const row = await createCustomer(dbPool, {
+      name,
+      phone: typeof body.phone === "string" ? body.phone : null,
+      email: typeof body.email === "string" ? body.email : null,
+      notes: typeof body.notes === "string" ? body.notes : null
+    });
+    res.status(201).json(row);
+  } catch (error) {
+    console.error("[api] failed to create customer", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_create_customer" });
+  }
+});
+
+// Detailed registry list with optional ?status= and ?q= filters.
+app.get("/registry/devices", async (req, res) => {
+  try {
+    const filter: ListDevicesRegistryFilter = {
+      status: typeof req.query.status === "string" ? req.query.status : null,
+      search: typeof req.query.q === "string" ? req.query.q : null
+    };
+    if (typeof req.query.limit === "string") filter.limit = Number(req.query.limit);
+    if (typeof req.query.offset === "string") filter.offset = Number(req.query.offset);
+    const items = await listDevicesRegistry(dbPool, filter);
+    res.status(200).json({ count: items.length, items });
+  } catch (error) {
+    console.error("[api] failed to list registry devices", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_registry_devices" });
+  }
+});
+
+app.get("/registry/devices/:sn", async (req, res) => {
+  try {
+    const row = await getDeviceRegistry(dbPool, req.params.sn);
+    if (!row) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.status(200).json(row);
+  } catch (error) {
+    console.error("[api] failed to get registry device", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_get_registry_device" });
+  }
+});
+
+// Resolve a raw metadata object (from JSON or CSV) into DeviceMetadataInput, mapping
+// property_type_code -> id when needed.
+const toMetadataInput = (
+  raw: Record<string, unknown>,
+  propertyTypeByCode: Map<string, number>
+): DeviceMetadataInput | { error: string } => {
+  const sn = typeof raw.sn === "string" ? raw.sn.trim() : "";
+  if (!sn) {
+    return { error: "missing_sn" };
+  }
+  const str = (k: string): string | null | undefined => {
+    const v = raw[k];
+    if (v === undefined || v === null || v === "") return undefined;
+    return String(v).trim();
+  };
+  const num = (k: string): number | null | undefined => {
+    const v = raw[k];
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  let propertyTypeId = num("propertyTypeId") ?? num("property_type_id");
+  const ptCode = str("propertyTypeCode") ?? str("property_type_code");
+  if (propertyTypeId === undefined && ptCode) {
+    propertyTypeId = propertyTypeByCode.get(ptCode.toLowerCase());
+  }
+  return {
+    sn,
+    productKey: str("productKey") ?? str("product_key") ?? null,
+    label: str("label") ?? null,
+    subscriberNo: str("subscriberNo") ?? str("subscriber_no") ?? null,
+    customerId: str("customerId") ?? str("customer_id") ?? null,
+    propertyTypeId: propertyTypeId ?? null,
+    addressLine: str("addressLine") ?? str("address_line") ?? null,
+    district: str("district") ?? null,
+    city: str("city") ?? null,
+    lat: num("lat") ?? null,
+    lng: num("lng") ?? null,
+    tariff: str("tariff") ?? null,
+    region: str("region") ?? null,
+    dealer: str("dealer") ?? null,
+    installDate: str("installDate") ?? str("install_date") ?? null,
+    notes: str("notes") ?? null
+  };
+};
+
+// Single device registration / metadata update (promotes quarantined/auto -> registered).
+app.post("/registry/devices", async (req, res) => {
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+  try {
+    const ptMap = new Map((await listPropertyTypes(dbPool)).map((p) => [p.code.toLowerCase(), p.id]));
+    const parsed = toMetadataInput(body, ptMap);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    await registerDevice(dbPool, parsed);
+    res.status(201).json(await getDeviceRegistry(dbPool, parsed.sn));
+  } catch (error) {
+    console.error("[api] failed to register device", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_register_device" });
+  }
+});
+
+app.patch("/registry/devices/:sn", async (req, res) => {
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+  try {
+    const ptMap = new Map((await listPropertyTypes(dbPool)).map((p) => [p.code.toLowerCase(), p.id]));
+    const parsed = toMetadataInput({ ...body, sn: req.params.sn }, ptMap);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+    await registerDevice(dbPool, parsed);
+    res.status(200).json(await getDeviceRegistry(dbPool, parsed.sn));
+  } catch (error) {
+    console.error("[api] failed to update device", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_update_device" });
+  }
+});
+
+app.post("/registry/devices/:sn/approve", async (req, res) => {
+  try {
+    const ok = await approveQuarantinedDevice(dbPool, req.params.sn);
+    if (!ok) {
+      res.status(404).json({ error: "not_quarantined_or_not_found" });
+      return;
+    }
+    res.status(200).json(await getDeviceRegistry(dbPool, req.params.sn));
+  } catch (error) {
+    console.error("[api] failed to approve device", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_approve_device" });
+  }
+});
+
+app.post("/registry/devices/:sn/lifecycle", async (req, res) => {
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+  const lifecycle = typeof body.lifecycle === "string" ? body.lifecycle : "";
+  if (!["registered", "commissioned", "active", "decommissioned"].includes(lifecycle)) {
+    res.status(400).json({ error: "invalid_lifecycle" });
+    return;
+  }
+  try {
+    const ok = await setDeviceLifecycle(dbPool, req.params.sn, lifecycle as "registered" | "commissioned" | "active" | "decommissioned");
+    if (!ok) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.status(200).json(await getDeviceRegistry(dbPool, req.params.sn));
+  } catch (error) {
+    console.error("[api] failed to set lifecycle", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_set_lifecycle" });
+  }
+});
+
+// Minimal RFC4180-ish CSV parser (handles quoted fields, commas, CRLF).
+const parseCsv = (text: string): Array<Record<string, string>> => {
+  const rows: string[][] = [];
+  let field = "";
+  let row: string[] = [];
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 1; } else { inQuotes = false; }
+      } else { field += ch; }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(field); field = "";
+    } else if (ch === "\n") {
+      row.push(field); field = ""; rows.push(row); row = [];
+    } else if (ch !== "\r") {
+      field += ch;
+    }
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  const nonEmpty = rows.filter((r) => r.some((c) => c.trim().length > 0));
+  if (nonEmpty.length === 0) return [];
+  const header = nonEmpty[0]!.map((h) => h.trim());
+  return nonEmpty.slice(1).map((r) => {
+    const obj: Record<string, string> = {};
+    header.forEach((h, idx) => { obj[h] = (r[idx] ?? "").trim(); });
+    return obj;
+  });
+};
+
+// Bulk import. Accepts JSON { devices: [...] } or raw CSV text (text/csv).
+app.post("/registry/devices/import", async (req, res) => {
+  try {
+    const ptMap = new Map((await listPropertyTypes(dbPool)).map((p) => [p.code.toLowerCase(), p.id]));
+    let rawRows: Array<Record<string, unknown>> = [];
+    if (typeof req.body === "string") {
+      rawRows = parseCsv(req.body);
+    } else if (req.body && typeof req.body === "object" && Array.isArray((req.body as Record<string, unknown>).devices)) {
+      rawRows = (req.body as { devices: Array<Record<string, unknown>> }).devices;
+    } else {
+      res.status(400).json({ error: "expected_csv_text_or_devices_array" });
+      return;
+    }
+    const inputs: DeviceMetadataInput[] = [];
+    const rejected: Array<{ sn: string; error: string }> = [];
+    for (const raw of rawRows) {
+      const parsed = toMetadataInput(raw, ptMap);
+      if ("error" in parsed) {
+        rejected.push({ sn: typeof raw.sn === "string" ? raw.sn : "", error: parsed.error });
+      } else {
+        inputs.push(parsed);
+      }
+    }
+    const result = await bulkRegisterDevices(dbPool, inputs);
+    res.status(200).json({ ...result, total: rawRows.length, rejected: [...rejected, ...result.failed] });
+  } catch (error) {
+    console.error("[api] failed to import devices", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_import_devices" });
   }
 });
 

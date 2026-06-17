@@ -2725,7 +2725,9 @@ const logNormalizedMessage = async (topic: string, payload: Buffer): Promise<voi
   }
 
   try {
-    await applyInboundDeviceAndLatestState(dbPool, normalized, receivedAt);
+    await applyInboundDeviceAndLatestState(dbPool, normalized, receivedAt, {
+      whitelistEnabled: appConfig.deviceWhitelistEnabled
+    });
     log.debug("device upserted", {
       sn: resolved.sn,
       productKey: resolved.productKey

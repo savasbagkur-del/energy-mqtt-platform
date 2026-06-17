@@ -122,13 +122,66 @@ export interface DeviceLatestStateRow {
 export interface DeviceRow {
   sn: string;
   product_key: string | null;
-  last_seen_at: string;
+  last_seen_at: string | null;
   last_method: string | null;
   devname: string | null;
   softcode: string | null;
   softversion: string | null;
   network: unknown;
   updated_at: string;
+  registry_status: string;
+  lifecycle_status: string;
+  registered_at: string | null;
+  commissioned_at: string | null;
+}
+
+/** Whether a device is operationally managed (commandable). Quarantined SNs are not. */
+export const isManagedRegistryStatus = (status: string | null | undefined): boolean =>
+  status === "registered" || status === "auto";
+
+export type PropertyTypeRow = {
+  id: number;
+  code: string;
+  label: string;
+  sort_order: number;
+};
+
+export interface CustomerRow {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Joined registry view for the device list / detail (devices + customer + property type). */
+export interface DeviceRegistryRow {
+  sn: string;
+  product_key: string | null;
+  label: string | null;
+  subscriber_no: string | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  property_type_id: number | null;
+  property_type_code: string | null;
+  property_type_label: string | null;
+  address_line: string | null;
+  district: string | null;
+  city: string | null;
+  lat: number | null;
+  lng: number | null;
+  tariff: string | null;
+  region: string | null;
+  dealer: string | null;
+  install_date: string | null;
+  notes: string | null;
+  registry_status: string;
+  lifecycle_status: string;
+  registered_at: string | null;
+  commissioned_at: string | null;
+  last_seen_at: string | null;
 }
 
 export interface LatestStateRow {

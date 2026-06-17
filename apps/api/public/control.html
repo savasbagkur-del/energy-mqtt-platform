@@ -110,6 +110,8 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+// Preselect SN from ?sn= query param (used by the device-list "Kontrol" link).
+(() => { const q = new URLSearchParams(location.search).get("sn"); if (q) document.getElementById("sn").value = q; })();
 const sn = () => $("sn").value.trim();
 const log = (msg) => { const t = new Date().toLocaleTimeString(); $("log").textContent = `[${t}] ${msg}\n` + $("log").textContent; };
 

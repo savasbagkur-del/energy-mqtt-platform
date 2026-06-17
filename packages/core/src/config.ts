@@ -185,6 +185,12 @@ export interface AppConfig {
   workerReadyMaxLoopAgeSec: number;
   /** Bearer token required on API requests (except /health,/ready,/metrics). Null = auth disabled. */
   apiAuthToken: string | null;
+  /**
+   * Device whitelist: when true, unknown SNs that connect are recorded as 'quarantined' (visible
+   * but NOT managed/commanded) instead of auto-registered. Managed devices must be pre-registered.
+   * Default false preserves legacy auto-registration.
+   */
+  deviceWhitelistEnabled: boolean;
   /** Generic webhook URL for fault/alarm notifications. Null = alerting disabled (log only). */
   alertWebhookUrl: string | null;
   /** Per alert-key throttle window (sec) to avoid flooding the webhook with repeats. */
@@ -230,6 +236,7 @@ export const appConfig: AppConfig = Object.freeze({
   workerHealthPort: readPositiveInt(process.env.WORKER_HEALTH_PORT, 9100),
   workerReadyMaxLoopAgeSec: readPositiveInt(process.env.WORKER_READY_MAX_LOOP_AGE_SEC, 30),
   apiAuthToken: readString(process.env.API_AUTH_TOKEN),
+  deviceWhitelistEnabled: readBoolean(process.env.DEVICE_WHITELIST_ENABLED),
   alertWebhookUrl: readString(process.env.ALERT_WEBHOOK_URL),
   alertMinIntervalSec: readPositiveInt(process.env.ALERT_MIN_INTERVAL_SEC, 300),
   alertWebhookTimeoutMs: readPositiveInt(process.env.ALERT_WEBHOOK_TIMEOUT_MS, 5000)

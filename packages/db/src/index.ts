@@ -8,6 +8,7 @@ export * from "./device-cadence.js";
 export * from "./diagnostics.js";
 export * from "./locks.js";
 export * from "./devices.js";
+export * from "./device-registry.js";
 export * from "./presence.js";
 export * from "./inbound-device-state.js";
 export * from "./last-summary.js";
