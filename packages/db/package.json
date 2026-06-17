@@ -11,7 +11,8 @@
     "migrate:prod": "node dist/migrate.js",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test src/device-registry.integration.test.ts"
   },
   "dependencies": {
     "@communication/contracts": "workspace:*",
@@ -19,6 +20,7 @@
     "pg": "^8.16.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.15.2"
+    "@types/pg": "^8.15.2",
+    "tsx": "^4.21.0"
   }
 }
