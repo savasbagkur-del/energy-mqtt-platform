@@ -1,0 +1,96 @@
+groups:
+  - name: availability
+    rules:
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API scrape target is down"
+          description: "Prometheus cannot scrape the API (/metrics) for 2 minutes."
+
+      - alert: WorkerDown
+        expr: up{job="mqtt-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MQTT worker scrape target is down"
+          description: "Prometheus cannot scrape the worker (/metrics) for 2 minutes."
+
+      - alert: WorkerMqttDisconnected
+        expr: worker_mqtt_connected == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker is disconnected from the MQTT broker"
+          description: "worker_mqtt_connected has been 0 for 3 minutes; commands/telemetry are not flowing."
+
+      - alert: WorkerDbDown
+        expr: worker_db_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Worker cannot reach PostgreSQL"
+          description: "worker_db_up has been 0 for 2 minutes."
+
+      - alert: ApiDbDown
+        expr: api_db_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API cannot reach PostgreSQL"
+          description: "api_db_up has been 0 for 2 minutes."
+
+  - name: liveness
+    rules:
+      - alert: PublishLoopStalled
+        expr: worker_last_publish_loop_age_seconds > 120
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Publish loop is stalled"
+          description: "The command publish loop has not completed for >120s; outbound commands may be stuck."
+
+      - alert: ReconcileLoopStalled
+        expr: worker_last_reconcile_loop_age_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Reconcile loop is stalled"
+          description: "Desired-state reconciliation has not completed for >300s."
+
+      - alert: InboundBacklogHigh
+        expr: worker_inbound_queue_depth > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inbound MQTT backlog is high"
+          description: "worker_inbound_queue_depth > 500 for 5 minutes; the worker may be undersized."
+
+  - name: commands
+    rules:
+      - alert: CommandDeliveryFailuresRising
+        expr: increase(worker_command_ack_timeout_delivery_total[10m]) > 10
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Command delivery failures are rising"
+          description: "More than 10 commands exhausted their delivery window in the last 10 minutes."
+
+      - alert: AlertWebhookFailing
+        expr: increase(worker_alerts_failed_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alert webhook delivery is failing"
+          description: "Fault notifications failed to reach the webhook in the last 15 minutes."

@@ -115,6 +115,63 @@ curl http://127.0.0.1:9100/metrics    # Prometheus formatı (komut/alarm sayaçl
   (bkz. `WORKER_READY_MAX_LOOP_AGE_SEC`).
 - Loglar: `docker compose --env-file .env.production -f docker-compose.prod.yml logs -f <servis>`.
 
+### 5.1 İzleme yığını (Prometheus + Grafana)
+
+`monitoring` profili Prometheus + Grafana'yı ayağa kaldırır. Prometheus, compose ağında
+`api:3000/metrics` ve `mqtt-worker:9100/metrics` uçlarını 15 sn'de bir scrape eder
+(`/metrics` token gerektirmeyen açık uçtur). Grafana datasource + başlangıç dashboard'u
+otomatik provision edilir.
+
+```bash
+# Başlat (api/worker zaten çalışıyor olmalı)
+docker compose --env-file .env.production -f docker-compose.prod.yml --profile monitoring up -d prometheus grafana
+
+# Prometheus UI:  http://<host>:9090   (Status > Targets → ikisi de UP olmalı)
+# Grafana UI:     http://<host>:3001   (giriş: GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD)
+#   → "Energy MQTT Platform — Overview" dashboard'u hazır gelir.
+```
+
+- Yapılandırma dosyaları: `infra/prometheus/prometheus.yml` (scrape), `infra/prometheus/alerts.yml`
+  (alarm kuralları), `infra/grafana/provisioning/*` (datasource + dashboard sağlayıcı),
+  `infra/grafana/dashboards/overview.json` (dashboard).
+- Alarm kuralları: ApiDown, WorkerDown, WorkerMqttDisconnected, Worker/ApiDbDown,
+  Publish/ReconcileLoopStalled, InboundBacklogHigh, CommandDeliveryFailuresRising, AlertWebhookFailing.
+  Prometheus bunları değerlendirir; gerçek bildirim için bir Alertmanager bağlanabilir veya
+  worker'ın kendi `ALERT_WEBHOOK_URL` mekanizması (Bölüm 3 alarmları) kullanılabilir.
+- Güvenlik: Prometheus (9090), Grafana (3001) ve Alertmanager (9093) portlarını internete açmayın;
+  security group ile yalnızca güvenli ağlara/VPN'e kısıtlayın. Grafana admin parolasını mutlaka değiştirin.
+- Production'da `--profile monitoring` ile `--profile tls`/`--profile tools` birlikte verilebilir;
+  profiller bağımsızdır.
+
+#### Alertmanager (alarm bildirimleri)
+
+`monitoring` profili Alertmanager'ı da başlatır. Prometheus, değerlendirdiği alarmları
+`alertmanager:9093`'e gönderir (bağlantı `infra/prometheus/prometheus.yml` → `alerting` bloğunda).
+Hedef kanalı `infra/alertmanager/alertmanager.yml` belirler.
+
+- Varsayılan alıcı (`default`) genel bir **webhook**'a POST atar. Slack ve e-posta örnekleri aynı
+  dosyada yorum satırı olarak hazır — kendi kanalınıza göre düzenleyin.
+- **Alertmanager ortam değişkeni ikamesi yapmaz**: gerçek URL/anahtarları doğrudan
+  `alertmanager.yml` içine yazın. Gizli değer koyacaksanız dosyayı `.gitignore`'a ekleyin veya
+  secret yönetimi kullanın. Değişiklikten sonra: `... restart alertmanager`.
+- Kritik alarmlar `1h`, diğerleri `4h` aralıkla tekrarlanır; `WorkerDown` aktifken aynı instance'ın
+  `warning` alarmları bastırılır (inhibit kuralı).
+- Test/teşhis:
+  ```bash
+  # Prometheus, Alertmanager'ı görüyor mu?
+  curl http://<host>:9090/api/v1/alertmanagers          # activeAlertmanagers dolu olmalı
+  # Sentetik alarm gönder (yönlendirmeyi test et):
+  curl -XPOST http://<host>:9093/api/v2/alerts -H 'content-type: application/json' \
+    -d '[{"labels":{"alertname":"SmokeTest","severity":"critical"}}]'
+  curl http://<host>:9093/api/v2/alerts                 # alarm "default" receiver'a düşmeli
+  ```
+- Worker'ın kendi `ALERT_WEBHOOK_URL` mekanizması (Bölüm 3, uygulama-içi fault alarmları) ile
+  Alertmanager (altyapı/metrik alarmları) birbirini tamamlar; ikisini de aynı webhook'a
+  yönlendirebilirsiniz.
+
+> Yerel doğrulama yapılmıştır: amtool/promtool config geçerli, Prometheus Alertmanager'ı keşfediyor,
+> sentetik alarm `default` receiver'a yönlendiriliyor.
+
 ---
 
 ## 6. Güvenlik işlemleri
@@ -206,6 +263,7 @@ $COMPOSE ps                      # durum
 $COMPOSE logs -f mqtt-worker     # canlı log
 $COMPOSE restart api             # tek servis yeniden başlat
 $COMPOSE up -d --scale mqtt-worker=3
+$COMPOSE --profile monitoring up -d prometheus grafana   # izleme yığını
 ./deploy/backup.sh               # yedek al
 ./deploy/restore.sh <dump>       # geri yükle (yıkıcı)
 ```
@@ -225,6 +283,7 @@ test edildi; aşağıdakiler bunu gerçek altyapıya taşır.
    - `443/tcp` → API kullanıcı ağı (nginx TLS); `80/tcp` → 443'e yönlendirme
    - `8883/tcp` → cihaz ağları (MQTT over TLS) — düz `1883`'ü mümkünse dışa açma
    - `18083/tcp` → EMQX dashboard, sadece admin IP
+   - `9090/tcp` (Prometheus) + `3001/tcp` (Grafana) → sadece admin IP/VPN, internete açma
 4. Kodu sunucuya al (`/opt/communication-mvp`), `.env.production.example` → `.env.production` kopyala, doldur:
    - `POSTGRES_*` (RDS), güçlü `POSTGRES_PASSWORD`
    - `API_AUTH_TOKEN` = `openssl rand -hex 32`

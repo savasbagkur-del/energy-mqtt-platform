@@ -1,0 +1,61 @@
+# Alertmanager yapılandırması.
+# Bu dosya konteynere salt-okunur mount edilir; değiştirdikten sonra Alertmanager'ı yeniden başlatın
+# (docker compose ... restart alertmanager) veya POST /-/reload yapın.
+#
+# Alertmanager ortam değişkeni ikamesi yapmaz: gerçek URL/anahtarları doğrudan buraya yazın.
+# Sırları repoya commit'lemeyin (bu dosya .gitignore'da değildir; gizli değer koyacaksanız
+# .gitignore'a ekleyin veya secret yönetimi kullanın).
+
+global:
+  resolve_timeout: 5m
+
+route:
+  # Aynı alarm adını grupla; ilk bildirimi 30 sn bekle (aynı dalgayı toparla).
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: default
+  routes:
+    # Kritik alarmlar daha sık tekrarlansın.
+    - matchers:
+        - severity = "critical"
+      receiver: default
+      repeat_interval: 1h
+
+receivers:
+  - name: default
+    # Genel webhook alıcısı. Worker'ın kendi ALERT_WEBHOOK_URL'i ile AYNI uca yönlendirebilirsiniz
+    # ya da ayrı bir Alertmanager köprüsü kullanabilirsiniz. URL'yi kendi sisteminizle değiştirin.
+    webhook_configs:
+      - url: "http://host.docker.internal:9099/alertmanager"
+        send_resolved: true
+
+    # --- Slack örneği (yukarıdaki webhook yerine veya yanında kullanın) ---
+    # slack_configs:
+    #   - api_url: "https://hooks.slack.com/services/XXXX/YYYY/ZZZZ"
+    #     channel: "#alerts"
+    #     send_resolved: true
+    #     title: "{{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})"
+    #     text: "{{ range .Alerts }}{{ .Annotations.summary }} — {{ .Annotations.description }}\n{{ end }}"
+
+    # --- E-posta örneği (global.smtp_* ayarları gerektirir) ---
+    # email_configs:
+    #   - to: "ops@your-domain.com"
+    #     send_resolved: true
+
+# E-posta kullanacaksanız global bloğa SMTP ayarlarını ekleyin:
+# global:
+#   smtp_smarthost: "smtp.your-provider.com:587"
+#   smtp_from: "alerts@your-domain.com"
+#   smtp_auth_username: "alerts@your-domain.com"
+#   smtp_auth_password: "..."
+
+# Tekrarlı bildirimleri bastırmak için inhibit kuralları (ör. servis komple düşünce alt alarmları sustur):
+inhibit_rules:
+  - source_matchers:
+      - alertname = "WorkerDown"
+    target_matchers:
+      - severity = "warning"
+    # Aynı instance'ta worker komple düşmüşse, ona bağlı warning alarmlarını gösterme.
+    equal: ["instance"]
