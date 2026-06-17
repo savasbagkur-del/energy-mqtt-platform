@@ -1,0 +1,9 @@
+# Normalize text files to LF in the repo; let Git pick the working-tree EOL per platform.
+* text=auto
+
+# Shell scripts MUST be LF even on Windows checkouts — they run on the Linux server (AWS) and
+# CRLF breaks bash ("syntax error near unexpected token $'do\r'").
+*.sh text eol=lf
+
+# Node ESM helper scripts: keep LF for consistency.
+*.mjs text eol=lf

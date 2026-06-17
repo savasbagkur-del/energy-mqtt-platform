@@ -287,13 +287,15 @@ test edildi; aşağıdakiler bunu gerçek altyapıya taşır.
 4. Kodu sunucuya al (`/opt/communication-mvp`), `.env.production.example` → `.env.production` kopyala, doldur:
    - `POSTGRES_*` (RDS), güçlü `POSTGRES_PASSWORD`
    - `API_AUTH_TOKEN` = `openssl rand -hex 32`
-   - `MQTT_USERNAME`/`MQTT_PASSWORD` (güçlü), `MQTT_CLIENT_ID` benzersiz
+   - `MQTT_USERNAME`/`MQTT_PASSWORD` (backend, güçlü), `MQTT_CLIENT_ID` benzersiz
+   - `DEVICE_MQTT_USERNAME`/`DEVICE_MQTT_PASSWORD` (paylaşımlı cihaz kimliği, güçlü)
    - `DEVICE_WHITELIST_ENABLED` (gerçek cihazları kaydettikten sonra `true`)
 5. **TLS sertifikası**: domain → API için sertifika al (Let's Encrypt/ACM). `fullchain.pem` +
    `privkey.pem` dosyalarını `infra/nginx/certs/` altına koy.
-6. **EMQX güvenliği** (Bölüm 12) — kimlik doğrulamayı aç ve cihaz kimlik bilgilerini ekle, TLS cert'i değiştir.
-7. **Başlat**: `./deploy/bootstrap.sh` (build + migrate + up + health). TLS proxy için:
+6. **Başlat**: `./deploy/bootstrap.sh` (build + migrate + up + health). TLS proxy için:
    `docker compose --env-file .env.production -f docker-compose.prod.yml --profile tls up -d`
+7. **EMQX güvenliği** (Bölüm 12) — broker ayağa kalkınca `setup-emqx-auth.mjs` + `setup-emqx-rules.mjs`
+   çalıştır (kimlik doğrulama + cihaz/backend kullanıcıları + presence/binding kuralları), TLS cert'i değiştir.
 8. **Doğrula**: `curl https://<domain>/health`, `/ready`; EMQX dashboard'da cihaz bağlantısı; worker `:9100/ready`.
 9. **Yedekleme cron'u** kur (Bölüm 4). Yedekleri S3'e kopyala.
 10. **Gerçek cihazları kaydet** (`devices.html` veya CSV import), sonra whitelist'i aç ve worker'ı yeniden başlat.
@@ -324,14 +326,28 @@ kullanıcı/parolasını** kullanır. Cihaz ayrımı **seri numarası (SN)** üz
 **whitelist açıkken** o SN `quarantined` olur → komut alamaz, yönetilmez (spoof koruması). Ek olarak
 TLS (8883) kimlik bilgisinin hatta dinlenmesini engeller.
 
-**Kimlik doğrulamayı açma (built-in database):**
-1. Dashboard → `http://<EC2_IP>:18083` (giriş: `.env.production` MQTT_USERNAME/PASSWORD).
-2. Access Control → Authentication → Create → **Password-Based: Built-in Database**.
-3. Authentication → Users → iki kullanıcı ekle:
-   - **Backend**: `MQTT_USERNAME`/`MQTT_PASSWORD` (worker bununla bağlanır).
-   - **Paylaşımlı cihaz**: örn. `fleet_device` + güçlü parola (tüm cihazlara bu yazılır).
-4. (Opsiyonel) Authorization (ACL): backend kullanıcısına tüm topic'ler; cihaz kullanıcısına
-   `data/#`, `sys/dev/#`, `indicate/dev/#` publish/subscribe yeterli.
+**Kimlik doğrulamayı açma — script (önerilen):** `infra/emqx/setup-emqx-auth.mjs` idempotent olarak
+built-in database authenticator'ı oluşturur ve backend + paylaşımlı cihaz kullanıcılarını ekler
+(authenticator eklenince anonim/yanlış kimlik reddedilir):
+
+```bash
+EMQX_API_URL=http://127.0.0.1:18083 \
+EMQX_API_USER=<dashboard_admin> EMQX_API_PASS=<dashboard_pass> \
+BACKEND_MQTT_USERNAME="$MQTT_USERNAME" BACKEND_MQTT_PASSWORD="$MQTT_PASSWORD" \
+DEVICE_MQTT_USERNAME="$DEVICE_MQTT_USERNAME" DEVICE_MQTT_PASSWORD="$DEVICE_MQTT_PASSWORD" \
+ENABLE_AUTHZ=true \
+node infra/emqx/setup-emqx-auth.mjs
+```
+
+- `ENABLE_AUTHZ=true` topic ACL'lerini de kurar: backend → tüm topic'ler; cihaz → `sys/#`, `data/#`;
+  eşleşme yoksa **deny**. Atlamak için `ENABLE_AUTHZ` verme (yalnız authentication kurulur).
+- Idempotent: tekrar çalıştırınca kullanıcı parolalarını günceller (rotasyon), authenticator/ACL'yi
+  bozmaz. Aynı şekilde rule-engine için: `infra/emqx/setup-emqx-rules.mjs` (presence + binding).
+- **Doğrulama (yerelde test edildi):** doğru cihaz/backend kimliği bağlanır; yanlış parola ve anonim
+  bağlantı `Bad username or password` ile reddedilir.
+
+**Elle (script yerine, dashboard):** Access Control → Authentication → Create →
+**Password-Based: Built-in Database** → Users → backend ve paylaşımlı cihaz kullanıcılarını ekle.
 
 > Kalıcılık: EMQX `data/` hacmi mount'lu (`/opt/emqx/data`), eklenen kullanıcılar yeniden başlatmada korunur.
 

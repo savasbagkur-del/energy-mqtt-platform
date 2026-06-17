@@ -34,6 +34,28 @@ if [[ ! -f "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
+echo "[bootstrap] preflight: checking .env.production for unfilled placeholders..."
+# Abort if any secret still holds the example placeholder — a common deploy-day mistake.
+REQUIRED_VARS=(POSTGRES_PASSWORD API_AUTH_TOKEN MQTT_PASSWORD DEVICE_MQTT_PASSWORD)
+preflight_rc=0
+for var in "${REQUIRED_VARS[@]}"; do
+  line="$(grep -E "^${var}=" "${ENV_FILE}" | head -n1 || true)"
+  value="${line#*=}"
+  value="$(echo "${value}" | tr -d '[:space:]')"
+  if [[ -z "${line}" ]]; then
+    echo "[bootstrap]   MISSING: ${var} is not set in .env.production"
+    preflight_rc=1
+  elif [[ -z "${value}" || "${value}" == "change_me"* ]]; then
+    echo "[bootstrap]   PLACEHOLDER: ${var} still holds an empty/'change_me' value"
+    preflight_rc=1
+  fi
+done
+if [[ "${preflight_rc}" -ne 0 ]]; then
+  echo "[bootstrap] error: fill the values above in ${ENV_FILE} before deploying"
+  exit 1
+fi
+echo "[bootstrap]   ok: required secrets are set"
+
 COMPOSE=(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}")
 
 echo "[bootstrap] building images (api + worker)..."
