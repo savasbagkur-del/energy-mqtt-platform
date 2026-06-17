@@ -1,0 +1,64 @@
+services:
+  emqx:
+    image: emqx/emqx:5.10.3
+    container_name: communication-emqx
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+      - "${EMQX_DASHBOARD_PORT:-18083}:18083"
+    environment:
+      EMQX_NAME: emqx
+      EMQX_HOST: 127.0.0.1
+      EMQX_DASHBOARD__DEFAULT_USERNAME: ${MQTT_USERNAME}
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: ${MQTT_PASSWORD}
+    volumes:
+      - /opt/emqx/data:/opt/emqx/data
+      - /opt/emqx/log:/opt/emqx/log
+    healthcheck:
+      test: ["CMD-SHELL", "emqx ctl status | grep -q 'is running'"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  api:
+    image: communication-api:latest
+    container_name: communication-api
+    restart: unless-stopped
+    depends_on:
+      emqx:
+        condition: service_started
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      API_PORT: ${API_PORT}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MQTT_HOST: ${MQTT_HOST}
+      MQTT_PORT: ${MQTT_PORT}
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID}-api
+    ports:
+      - "${API_PORT:-3000}:3000"
+
+  mqtt-worker:
+    image: communication-mqtt-worker:latest
+    container_name: communication-mqtt-worker
+    restart: unless-stopped
+    depends_on:
+      emqx:
+        condition: service_started
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MQTT_HOST: ${MQTT_HOST}
+      MQTT_PORT: ${MQTT_PORT}
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID}

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cihaz Manuel Kontrol — Online Test</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #1a2129; --panel2: #232c37; --line: #2e3947;
+    --txt: #e6edf3; --muted: #8b98a5; --on: #2ea043; --off: #6e7681;
+    --warn: #d29922; --bad: #f85149; --accent: #1f6feb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial; background: var(--bg); color: var(--txt); }
+  header { padding: 16px 22px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 22px 60px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .card.full { grid-column: 1 / -1; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 14px; }
+  input { background: var(--panel2); border: 1px solid var(--line); color: var(--txt); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+  button { cursor: pointer; border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font-size: 14px; font-weight: 600; color: var(--txt); background: var(--panel2); transition: .12s; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-on { background: #18391f; border-color: #2ea043; }
+  .btn-off { background: #3a1e1e; border-color: #b6353a; }
+  .btn-refresh { background: #16324f; border-color: #1f6feb; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .statusbig { display: flex; align-items: center; gap: 18px; }
+  .badge { font-size: 30px; font-weight: 800; padding: 14px 26px; border-radius: 12px; letter-spacing: .04em; }
+  .badge.on { background: rgba(46,160,67,.16); color: var(--on); border: 1px solid var(--on); }
+  .badge.off { background: rgba(110,118,129,.16); color: #adbac7; border: 1px solid var(--off); }
+  .badge.unknown { background: rgba(210,153,34,.16); color: var(--warn); border: 1px solid var(--warn); }
+  .meta { color: var(--muted); font-size: 13px; line-height: 1.7; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot.green { background: var(--on); } .dot.gray { background: var(--off); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  .pill { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+  .pill.ok { background: rgba(46,160,67,.18); color: var(--on); }
+  .pill.pend { background: rgba(210,153,34,.18); color: var(--warn); }
+  .pill.bad { background: rgba(248,81,73,.18); color: var(--bad); }
+  .pill.neu { background: rgba(139,152,165,.18); color: var(--muted); }
+  #log { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); max-height: 160px; overflow: auto; white-space: pre-wrap; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cihaz Manuel Kontrol</h1>
+  <div class="row">
+    <label class="meta" for="sn">SN</label>
+    <input id="sn" value="24042809890002" size="20" />
+    <label class="meta"><input type="checkbox" id="auto" checked /> Otomatik yenile</label>
+    <span id="conn" class="meta"><span class="dot gray"></span>—</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <h2>Anahtar Durumu (decode)</h2>
+    <div class="statusbig">
+      <div id="switchBadge" class="badge unknown">—</div>
+      <div class="meta" id="switchMeta"></div>
+    </div>
+    <div class="actions" style="margin-top:18px;">
+      <button class="btn-refresh" id="btnRefresh">Yenile (refresh)</button>
+      <button class="btn-on" id="btnOn">AÇ (switch 1)</button>
+      <button class="btn-off" id="btnOff">KAPAT (switch 0)</button>
+      <button id="btnClear">İradeyi Temizle</button>
+    </div>
+    <div class="note">AÇ/KAPAT gerçek röleyi fiziksel olarak değiştirir ve "irade" olarak kaydedilir; reconciler cihaz onaylayana kadar sürdürür. Yenile salt-okunurdur.</div>
+  </div>
+
+  <div class="card">
+    <h2>Sayaç Alanları</h2>
+    <div class="kv" id="meter"></div>
+    <div class="note">Bu cihaz <code>SwitchSta</code> yollamıyor. Röle durumu <b>AdfState1</b> (AÇIK≈57583 / KAPALI≈488) ve <b>PRESTATE</b> (KAPALI=699 / AÇIK=570) alanlarından decode ediliyor (saha testiyle doğrulandı).</div>
+  </div>
+
+  <div class="card">
+    <h2>İrade (Desired State)</h2>
+    <div class="kv" id="desired"><span>—</span><span></span></div>
+  </div>
+
+  <div class="card">
+    <h2>Bağlantı / Telemetri</h2>
+    <div class="kv" id="connKv"></div>
+  </div>
+
+  <div class="card full">
+    <h2>Son Komutlar (gönderim → ACK)</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Tip</th><th>Durum</th><th>Deneme</th><th>ACK gecikme</th><th>Oluşturma</th><th>Publish</th><th>ACK</th><th>Verify</th></tr></thead>
+      <tbody id="cmds"></tbody>
+    </table>
+  </div>
+
+  <div class="card full">
+    <h2>İşlem Günlüğü</h2>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const sn = () => $("sn").value.trim();
+const log = (msg) => { const t = new Date().toLocaleTimeString(); $("log").textContent = `[${t}] ${msg}\n` + $("log").textContent; };
+
+async function api(method, path, body) {
+  const res = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+  let json = null; try { json = await res.json(); } catch {}
+  return { status: res.status, json };
+}
+
+function pill(status) {
+  const ok = ["verified_success", "verified_success_with_late_confirmation"];
+  const pend = ["published", "scheduled", "created", "ack_received", "verify_pending", "in_flight", "pending"];
+  const bad = ["failed", "delivery_timeout", "expired", "verified_mismatch", "cancelled"];
+  let cls = "neu";
+  if (ok.includes(status)) cls = "ok"; else if (bad.includes(status)) cls = "bad"; else if (pend.includes(status)) cls = "pend";
+  return `<span class="pill ${cls}">${status ?? "-"}</span>`;
+}
+const t = (v) => (v ? new Date(v).toLocaleTimeString() : "-");
+const n = (v) => (v === null || v === undefined ? "-" : v);
+
+async function poll() {
+  const s = sn();
+  if (!s) return;
+  try {
+    const { status, json } = await api("GET", `/devices/${s}/control-view`);
+    if (status !== 200 || !json) { $("conn").innerHTML = `<span class="dot gray"></span>cihaz bulunamadı`; return; }
+
+    // switch badge
+    const sw = json.switchDecoded;
+    const badge = $("switchBadge");
+    badge.className = "badge " + (sw === "on" ? "on" : sw === "off" ? "off" : "unknown");
+    badge.textContent = sw === "on" ? "AÇIK" : sw === "off" ? "KAPALI" : "BİLİNMİYOR";
+    $("switchMeta").innerHTML = `AdfState1 = <b>${n(json.meter.adfState1)}</b><br>PRESTATE = <b>${n(json.meter.prestate)}</b>`;
+
+    // online
+    $("conn").innerHTML = `<span class="dot ${json.onlineFresh ? "green" : "gray"}"></span>${json.onlineFresh ? "çevrimiçi" : "veri eski"}`;
+
+    // meter
+    const m = json.meter;
+    $("meter").innerHTML = [
+      ["PRESTATE", m.prestate], ["AdfState1", m.adfState1], ["AdfState2", m.adfState2],
+      ["Balance", m.balance], ["OweMoney", m.oweMoney], ["EPI", m.epi], ["rssi", m.rssi]
+    ].map(([k, v]) => `<span>${k}</span><span>${n(v)}</span>`).join("");
+
+    // desired
+    const d = json.desired;
+    $("desired").innerHTML = d
+      ? [["durum", d.reconcile_status], ["hedef", JSON.stringify(d.desired_value)], ["deneme", d.attempt_count], ["komut id", d.last_command_id ?? "-"]].map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("")
+      : `<span>—</span><span>aktif irade yok</span>`;
+
+    // conn kv (+ öğrenilen ritim ve adaptif gating/timing)
+    const cad = json.cadence;
+    const at = json.adaptiveTiming;
+    const rows = [["son yöntem", json.lastMethod], ["son görülme", t(json.lastSeen)]];
+    if (cad) rows.push(["ritim (EWMA)", cad.ewmaReconnectSec === null ? "-" : Math.round(cad.ewmaReconnectSec) + "s (" + cad.sampleCount + " örnek)"]);
+    if (at) {
+      rows.push(["gating penceresi", at.gatingWindowSec + "s"]);
+      rows.push(["komut TTL / ack / retry", `${at.commandTtlSec}s / ${at.ackTimeoutSec}s / ${at.retryIntervalSec}s`]);
+    } else if (cad) {
+      rows.push(["adaptif zamanlama", "yeterli örnek yok (global ayar)"]);
+    }
+    $("connKv").innerHTML = rows.map(([k, v]) => `<span>${k}</span><span>${n(v)}</span>`).join("");
+
+    // commands
+    $("cmds").innerHTML = (json.recentCommands || []).map((c) =>
+      `<tr><td>${c.id}</td><td>${c.command_type}</td><td>${pill(c.status)}</td><td>${n(c.attempt_count)}</td><td>${c.ack_latency_ms === null ? "-" : c.ack_latency_ms + "ms"}</td><td>${t(c.created_at)}</td><td>${t(c.published_at)}</td><td>${t(c.ack_at)}</td><td>${t(c.verified_at)}</td></tr>`
+    ).join("");
+  } catch (e) {
+    $("conn").innerHTML = `<span class="dot gray"></span>API erişilemiyor`;
+  }
+}
+
+async function sendRefresh() {
+  const { status, json } = await api("POST", `/devices/${sn()}/commands/refresh`);
+  log(`refresh -> HTTP ${status} ${json && json.id ? "commandId=" + json.id : JSON.stringify(json)}`);
+  poll();
+}
+async function sendSwitch(val) {
+  if (!confirm(`Cihaz ${sn()} röiyi ${val === 1 ? "AÇACAK" : "KAPATACAK"}. Bu fiziksel bir işlem. Devam?`.replace("röiyi", "röleyi"))) return;
+  const { status, json } = await api("POST", `/devices/${sn()}/commands/force-switch-${val}`);
+  log(`force-switch-${val} -> HTTP ${status} ${json && json.desiredState ? "irade id=" + json.desiredState.id : JSON.stringify(json)}`);
+  poll();
+}
+async function clearDesired() {
+  const { status, json } = await api("DELETE", `/devices/${sn()}/desired/switch`);
+  log(`irade temizle -> HTTP ${status} ${JSON.stringify(json)}`);
+  poll();
+}
+
+$("btnRefresh").onclick = sendRefresh;
+$("btnOn").onclick = () => sendSwitch(1);
+$("btnOff").onclick = () => sendSwitch(0);
+$("btnClear").onclick = clearDesired;
+
+let timer = null;
+function loop() { if ($("auto").checked) poll(); }
+setInterval(loop, 2500);
+poll();
+log("Arayüz hazır. SN seçili, otomatik yenileme açık.");
+</script>
+</body>
+</html>
