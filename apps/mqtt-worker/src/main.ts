@@ -67,6 +67,7 @@ import {
 import { createSimulatorService } from "./simulator.js";
 import { processDesiredStateReconciliation } from "./reconciler.js";
 import { createWorkerHealthServer } from "./health-server.js";
+import { createAlerter } from "./alerting.js";
 
 const log = createLogger("mqtt-worker");
 
@@ -74,6 +75,15 @@ const log = createLogger("mqtt-worker");
 let mqttConnected = false;
 let lastPublishLoopAt: number | null = null;
 let lastReconcileLoopAt: number | null = null;
+
+// Best-effort fault/alarm notifier (generic webhook; logs only when unconfigured).
+const alerter = createAlerter({
+  webhookUrl: appConfig.alertWebhookUrl,
+  minIntervalSec: appConfig.alertMinIntervalSec,
+  timeoutMs: appConfig.alertWebhookTimeoutMs,
+  source: appConfig.mqttClientId ?? "mqtt-worker",
+  log
+});
 
 const env = {
   nodeEnv: appConfig.nodeEnv,
@@ -944,6 +954,13 @@ const maybeEmitOnlineNoVerifyFault = async (cmd: CommandRow): Promise<void> => {
     ackAt: cmd.ack_at,
     thresholdSec
   });
+  alerter.notify({
+    type: "device_online_but_no_verify_fault",
+    severity: "warning",
+    sn: cmd.sn,
+    message: `Device ${cmd.sn} online and ACKed command ${cmd.id} but did not verify within ${thresholdSec}s`,
+    fields: { commandId: cmd.id, commandType: cmd.command_type, ackAt: cmd.ack_at, thresholdSec }
+  });
 };
 
 const processCommandTimeouts = async (): Promise<void> => {
@@ -1063,6 +1080,13 @@ const processCommandTimeouts = async (): Promise<void> => {
             lastSeenAt: dev.last_seen_at,
             deliveryWindowSec,
             anchorAt: new Date(anchorMs).toISOString()
+          });
+          alerter.notify({
+            type: "device_online_but_no_ack_fault",
+            severity: "warning",
+            sn: cmd.sn,
+            message: `Device ${cmd.sn} seen online but command ${cmd.id} got no ACK within delivery window (${deliveryWindowSec}s)`,
+            fields: { commandId: cmd.id, commandType: cmd.command_type, lastSeenAt: dev.last_seen_at, deliveryWindowSec }
           });
         }
       }
@@ -2759,7 +2783,8 @@ console.log("[mqtt-worker] worker booted", {
   switchDecodeFromAdfState: appConfig.switchDecodeFromAdfState,
   adaptiveTimingEnabled: appConfig.adaptiveTimingEnabled,
   adaptiveGatingEnabled: appConfig.adaptiveGatingEnabled,
-  workerHealthPort: appConfig.workerHealthPort
+  workerHealthPort: appConfig.workerHealthPort,
+  alertingEnabled: appConfig.alertWebhookUrl !== null
 });
 
 const metricsInterval = setInterval(() => {
@@ -2915,7 +2940,16 @@ setInterval(() => {
     pool: dbPool,
     log,
     resolveReportedSwitch: resolveReportedSwitchForReconcile,
-    config: reconcilerConfig
+    config: reconcilerConfig,
+    onUnreachableAlarm: ({ sn, desired, unreachableForSec }) => {
+      alerter.notify({
+        type: "desired_state_unreachable_alarm",
+        severity: "critical",
+        sn,
+        message: `Desired switch=${desired} for ${sn} unreachable for ${unreachableForSec}s`,
+        fields: { desired, unreachableForSec }
+      });
+    }
   })
     .catch((error: unknown) => {
       console.error("[mqtt-worker] reconcile_loop_failed", {
@@ -2939,7 +2973,8 @@ const healthServer = createWorkerHealthServer({
     inboundQueueDepth: inboundQueue.length,
     inboundActive,
     lastPublishLoopAt,
-    lastReconcileLoopAt
+    lastReconcileLoopAt,
+    alertStats: alerter.stats()
   })
 });
 
@@ -2949,11 +2984,23 @@ process.on("unhandledRejection", (reason) => {
   console.error("[mqtt-worker] unhandledRejection (kept alive)", {
     message: reason instanceof Error ? reason.message : String(reason)
   });
+  alerter.notify({
+    type: "worker_unhandled_rejection",
+    severity: "critical",
+    message: "Worker hit an unhandled promise rejection (kept alive)",
+    fields: { reason: reason instanceof Error ? reason.message : String(reason) }
+  });
 });
 process.on("uncaughtException", (error) => {
   console.error("[mqtt-worker] uncaughtException (kept alive)", {
     message: error instanceof Error ? error.message : String(error),
     stack: error instanceof Error ? error.stack : undefined
+  });
+  alerter.notify({
+    type: "worker_uncaught_exception",
+    severity: "critical",
+    message: "Worker hit an uncaught exception (kept alive)",
+    fields: { error: error instanceof Error ? error.message : String(error) }
   });
 });
 

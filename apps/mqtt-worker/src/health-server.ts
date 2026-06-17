@@ -20,6 +20,8 @@ export interface WorkerLiveState {
   lastPublishLoopAt: number | null;
   /** epoch ms of the last completed reconcile loop, or null. */
   lastReconcileLoopAt: number | null;
+  /** Webhook alerter counters. */
+  alertStats: { sent: number; failed: number; throttled: number };
 }
 
 export interface HealthServerOptions {
@@ -96,6 +98,9 @@ const renderMetrics = (state: WorkerLiveState, dbHealthy: boolean): string => {
   c("worker_command_refresh_verify_timeout_total", "Refresh verify timeouts.", ctr.refreshVerifyTimeout);
   c("worker_command_refresh_verify_recovered_total", "Refresh verifies recovered from evidence.", ctr.refreshVerifyRecoveredFromEvidence);
   c("worker_command_parent_switch_verify_timeout_total", "Parent switch verify timeouts.", ctr.parentSwitchVerifyTimeout);
+  c("worker_alerts_sent_total", "Fault/alarm notifications delivered to the webhook.", state.alertStats.sent);
+  c("worker_alerts_failed_total", "Fault/alarm notifications that failed to deliver.", state.alertStats.failed);
+  c("worker_alerts_throttled_total", "Fault/alarm notifications suppressed by throttle.", state.alertStats.throttled);
 
   const lat = (name: string, help: string, q: number, value: number | null): void => {
     if (value === null) {

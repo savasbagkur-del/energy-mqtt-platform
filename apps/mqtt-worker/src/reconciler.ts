@@ -28,6 +28,8 @@ export interface ReconcilerDeps {
   /** Reuses the worker's proven SwitchSta extraction from latest_state. */
   resolveReportedSwitch: (sn: string) => Promise<number | null>;
   config: ReconcilerConfig;
+  /** Optional hook fired when a desired state has been unreachable past its alarm threshold. */
+  onUnreachableAlarm?: (info: { sn: string; desired: number; unreachableForSec: number }) => void;
 }
 
 export type ReconcileAction = "reconciled" | "unreachable" | "wait_in_flight" | "issue_command";
@@ -190,6 +192,7 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
             desired,
             unreachableForSec: Math.round(unreachableForSec)
           });
+          deps.onUnreachableAlarm?.({ sn: row.sn, desired, unreachableForSec: Math.round(unreachableForSec) });
         }
         log.warn("reconcile_unreachable", {
           id: row.id,
