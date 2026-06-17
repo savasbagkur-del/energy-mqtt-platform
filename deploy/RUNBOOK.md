@@ -249,18 +249,54 @@ test edildi; aşağıdakiler bunu gerçek altyapıya taşır.
 EMQX 5.x'te kimlik doğrulama **authenticator zinciri** ile yapılır; compose env'inde
 `allow_anonymous=false` tek başına TÜM bağlantıları (worker dahil) reddeder — yapma.
 
+### Filo kimlik modeli (paylaşımlı kimlik + SN ile ayrım)
+
+Cihazları tek tek farklı kimlikle kurmak zor olduğundan **tüm cihazlar AYNI paylaşımlı MQTT
+kullanıcı/parolasını** kullanır. Cihaz ayrımı **seri numarası (SN)** üzerinden yapılır — topic
+`data/up/<productKey>/<sn>`, ve kayıt/whitelist/komutlar hep SN'e bağlıdır. Üç ayrı kimlik vardır:
+
+| Kimlik | Kim kullanır | Nerede tanımlı |
+|---|---|---|
+| Dashboard admin | İnsan (yönetim) | `.env.production` (EMQX_DASHBOARD default) |
+| Backend kimliği | worker/api | `.env.production` `MQTT_USERNAME`/`MQTT_PASSWORD` |
+| Paylaşımlı cihaz kimliği | TÜM sayaçlar | EMQX auth (aşağıda) + cihaza yazılır |
+
+**Neden güvenli?** Paylaşımlı kimlik sızsa biri sahte bir SN ile bağlanıp veri basabilir; ama
+**whitelist açıkken** o SN `quarantined` olur → komut alamaz, yönetilmez (spoof koruması). Ek olarak
+TLS (8883) kimlik bilgisinin hatta dinlenmesini engeller.
+
 **Kimlik doğrulamayı açma (built-in database):**
 1. Dashboard → `http://<EC2_IP>:18083` (giriş: `.env.production` MQTT_USERNAME/PASSWORD).
 2. Access Control → Authentication → Create → **Password-Based: Built-in Database**.
-3. Authentication → Users → cihazlar ve worker için kullanıcı/parola ekle (worker'ın
-   `MQTT_USERNAME`/`MQTT_PASSWORD` değerleriyle eşleşmeli).
-4. (Opsiyonel) Access Control → Authorization (ACL) ile her client'ı kendi topic ön ekine kısıtla.
+3. Authentication → Users → iki kullanıcı ekle:
+   - **Backend**: `MQTT_USERNAME`/`MQTT_PASSWORD` (worker bununla bağlanır).
+   - **Paylaşımlı cihaz**: örn. `fleet_device` + güçlü parola (tüm cihazlara bu yazılır).
+4. (Opsiyonel) Authorization (ACL): backend kullanıcısına tüm topic'ler; cihaz kullanıcısına
+   `data/#`, `sys/dev/#`, `indicate/dev/#` publish/subscribe yeterli.
 
-> Alternatif: `infra/emqx/` altına bir `emqx.conf`/`acl` mount edip kod ile yönet (GitOps). MVP için
-> dashboard yeterli; kalıcılık için EMQX `data/` hacmi zaten mount'lu (`/opt/emqx/data`).
+> Kalıcılık: EMQX `data/` hacmi mount'lu (`/opt/emqx/data`), eklenen kullanıcılar yeniden başlatmada korunur.
 
-**MQTT over TLS (8883):** EMQX self-signed cert ile 8883'te hazır gelir. Üretim için bundled cert'i
-gerçek sertifikayla değiştir (`/opt/emqx/etc/certs/` altına mount) ve cihazları 8883'e yönlendir.
+### Cihaz provizyonu (cihaz yapılandırma ekranı)
 
-**API → EMQX:** worker/api compose ağında `MQTT_HOST=emqx` ile bağlanır; tek-host kurulumda
-`MQTT_HOST` EMQX servis adıdır. Ayrı broker (örn. mevcut `51.20.106.176`) kullanıyorsan oraya yönlendir.
+Her cihaza (aynı değerlerle):
+- **IP address or domain name** → `mqtt.your-domain.com` (SABIT alan adı, asla IP).
+- **port** → `8883` (TLS) — `protocol`/`Platform Selection`'da uygun (third-party) seçeneği seç ki
+  UserName/password alanları aktif olsun ("can only be set on third-party platforms").
+- **UserName/password (MQTT)** → paylaşımlı cihaz kimliği (örn. `fleet_device`).
+- **communication cycle** → telemetri periyodu (örn. 5–15 dk).
+
+Müşteri/abone değişince **hiçbir cihaz ayarına dokunma** — sadece DB'de `devices.customer_id`'yi
+güncelle (panelden veya API ile). Adres ve kimlik tüm filoda ortak ve sabit kalır.
+
+### MQTT over TLS (8883)
+EMQX self-signed cert ile 8883'te hazır gelir. Üretim için bundled cert'i gerçek sertifikayla
+değiştir (`/opt/emqx/etc/certs/` altına mount) ve cihazları 8883'e yönlendir.
+
+### Sabit endpoint (cihaz adresinin asla değişmemesi)
+Cihaza yazılan adres bir **alan adı** olmalı (ham IP DEĞİL). Arkadaki sunucuyu şöyle değiştirebilirsin:
+- **Aşama 1**: `mqtt.your-domain.com` → Route53 A kaydı → **Elastic IP** (EMQX'li EC2). Sunucuyu
+  yeniden kursan bile EIP sabit.
+- **Aşama 2 (ölçek/HA)**: alan adı → **NLB** → **EMQX cluster**. Kesintisiz yükseltme, cihaza dokunmadan.
+
+Cihaz adresi hep aynı alan adı; altyapı arkada değişir. Bu, "müşteri/sunucu değişince binlerce cihaza
+tek tek girme" felaketini önler.
