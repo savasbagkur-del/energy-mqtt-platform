@@ -12,6 +12,8 @@ const TARGET = String(process.env.TARGET ?? "0") === "1" ? 1 : 0;
 const MODE = process.env.MODE ?? "switch"; // "switch" | "refresh"
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 20);
 const SN_PREFIX = process.env.SN_PREFIX ?? "LOAD";
+const API_TOKEN = process.env.API_TOKEN ?? "";
+const authHeaders = API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {};
 
 const pad = (i) => String(i).padStart(6, "0");
 const sns = [];
@@ -23,7 +25,7 @@ const fireOne = async (sn) => {
       ? `${API_BASE}/devices/${sn}/commands/refresh`
       : `${API_BASE}/devices/${sn}/commands/force-switch-${TARGET}`;
   try {
-    const res = await fetch(url, { method: "POST" });
+    const res = await fetch(url, { method: "POST", headers: authHeaders });
     return res.ok ? "ok" : `http_${res.status}`;
   } catch (e) {
     return `err_${e.message}`;

@@ -56,6 +56,8 @@
     <label class="meta" for="sn">SN</label>
     <input id="sn" value="24042809890002" size="20" />
     <label class="meta"><input type="checkbox" id="auto" checked /> Otomatik yenile</label>
+    <label class="meta" for="token">Token</label>
+    <input id="token" type="password" placeholder="API token (varsa)" size="18" />
     <span id="conn" class="meta"><span class="dot gray"></span>—</span>
   </div>
 </header>
@@ -111,8 +113,18 @@ const $ = (id) => document.getElementById(id);
 const sn = () => $("sn").value.trim();
 const log = (msg) => { const t = new Date().toLocaleTimeString(); $("log").textContent = `[${t}] ${msg}\n` + $("log").textContent; };
 
+const getToken = () => ($("token").value || localStorage.getItem("apiToken") || "").trim();
+// Restore + persist token across reloads.
+(() => { const saved = localStorage.getItem("apiToken"); if (saved) $("token").value = saved; })();
+$("token").addEventListener("change", () => localStorage.setItem("apiToken", $("token").value.trim()));
+
 async function api(method, path, body) {
-  const res = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+  const headers = {};
+  if (body) headers["content-type"] = "application/json";
+  const token = getToken();
+  if (token) headers["authorization"] = `Bearer ${token}`;
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401) log("401: yetkisiz — geçerli API token girin");
   let json = null; try { json = await res.json(); } catch {}
   return { status: res.status, json };
 }

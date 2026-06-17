@@ -1,4 +1,5 @@
 import path from "node:path";
+import crypto from "node:crypto";
 import express from "express";
 import { appConfig, generateCommandMsgid } from "@communication/core";
 import {
@@ -87,7 +88,39 @@ const readPolicyProfileIdFromBody = (body: Record<string, unknown>): string | nu
 const app = express();
 app.use(express.json());
 // Static manual-test control UI (served same-origin so the page can call the API without CORS).
+// Served before auth so the page itself loads and can prompt for the token.
 app.use(express.static(path.join(process.cwd(), "public")));
+
+// Bearer-token auth. Probes/scrapers (/health,/ready,/metrics) stay open. When no token is
+// configured, auth is disabled (dev convenience) with a loud boot warning.
+const apiAuthToken = appConfig.apiAuthToken;
+const OPEN_PATHS = new Set(["/health", "/ready", "/metrics"]);
+const safeEqual = (a: string, b: string): boolean => {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(ab, bb);
+};
+if (!apiAuthToken) {
+  console.warn("[api] WARNING: API_AUTH_TOKEN not set — API authentication is DISABLED (open API)");
+}
+app.use((req, res, next) => {
+  if (!apiAuthToken || OPEN_PATHS.has(req.path)) {
+    next();
+    return;
+  }
+  const header = req.get("authorization") ?? "";
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  const presented = match?.[1];
+  if (presented === undefined || !safeEqual(presented, apiAuthToken)) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  next();
+});
+
 const port = appConfig.apiPort ?? 3000;
 const dbPool = createDbPool({
   host: appConfig.postgresHost ?? "127.0.0.1",

@@ -183,6 +183,8 @@ export interface AppConfig {
   workerHealthPort: number;
   /** Max staleness (sec) of the worker publish loop before /ready reports not_ready. */
   workerReadyMaxLoopAgeSec: number;
+  /** Bearer token required on API requests (except /health,/ready,/metrics). Null = auth disabled. */
+  apiAuthToken: string | null;
   /** Generic webhook URL for fault/alarm notifications. Null = alerting disabled (log only). */
   alertWebhookUrl: string | null;
   /** Per alert-key throttle window (sec) to avoid flooding the webhook with repeats. */
@@ -227,6 +229,7 @@ export const appConfig: AppConfig = Object.freeze({
   adaptiveGatingEnabled: readBooleanWithDefault(process.env.ADAPTIVE_GATING_ENABLED, true),
   workerHealthPort: readPositiveInt(process.env.WORKER_HEALTH_PORT, 9100),
   workerReadyMaxLoopAgeSec: readPositiveInt(process.env.WORKER_READY_MAX_LOOP_AGE_SEC, 30),
+  apiAuthToken: readString(process.env.API_AUTH_TOKEN),
   alertWebhookUrl: readString(process.env.ALERT_WEBHOOK_URL),
   alertMinIntervalSec: readPositiveInt(process.env.ALERT_MIN_INTERVAL_SEC, 300),
   alertWebhookTimeoutMs: readPositiveInt(process.env.ALERT_WEBHOOK_TIMEOUT_MS, 5000)

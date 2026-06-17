@@ -54,6 +54,7 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV}
       API_PORT: ${API_PORT}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
       POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_PORT: ${POSTGRES_PORT}
       POSTGRES_DB: ${POSTGRES_DB}
