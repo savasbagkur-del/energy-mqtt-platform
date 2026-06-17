@@ -65,6 +65,20 @@ docker compose --env-file .env.production -f docker-compose.prod.yml logs -f mqt
 docker compose --env-file .env.production -f docker-compose.prod.yml logs -f emqx
 ```
 
-## 6) EMQX Edition Notu
+## 6) Yedekleme / Geri Yukleme
+
+```bash
+./deploy/backup.sh                 # backups/<db>_<timestamp>.dump (gunluk cron onerilir)
+./deploy/restore.sh <dump>         # YIKICI: DB adini yazarak onay ister (FORCE=1 ile otomatik)
+```
+
+Detaylar, zamanlama (cron) ve geri yukleme tatbikati icin: `deploy/RUNBOOK.md` Bolum 4.
+
+## 7) Operasyon Runbook'u
+
+Deploy, saglik kontrolu, guvenlik (token rotasyonu, whitelist), olay mudahale ve olcekleme
+icin kapsamli rehber: **`deploy/RUNBOOK.md`**.
+
+## 8) EMQX Edition Notu
 
 Production oncesi EMQX icin edition/lisans karari netlestirilmelidir (Community vs Enterprise).

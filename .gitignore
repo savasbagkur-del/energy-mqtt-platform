@@ -11,6 +11,10 @@ coverage/
 # Environment
 .env
 .env.local
+.env.production
+
+# Database backups (generated)
+backups/
 
 # Logs
 *.log
