@@ -58,10 +58,10 @@ export const upsertDevice = async (
       commissioned_at,
       updated_at
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8::jsonb,
-      $9,
-      CASE WHEN $9 = 'quarantined' THEN 'unknown' ELSE 'commissioned' END,
-      CASE WHEN $9 = 'quarantined' THEN NULL ELSE $3 END,
+      $1, $2, $3::timestamptz, $4, $5, $6, $7, $8::jsonb,
+      $9::text,
+      CASE WHEN $9::text = 'quarantined' THEN 'unknown' ELSE 'commissioned' END,
+      CASE WHEN $9::text = 'quarantined' THEN NULL ELSE $3::timestamptz END,
       NOW()
     )
     ON CONFLICT (sn) DO UPDATE SET
