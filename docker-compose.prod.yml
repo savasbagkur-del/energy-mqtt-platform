@@ -103,7 +103,9 @@ services:
       MQTT_PASSWORD: ${MQTT_PASSWORD}
       MQTT_CLIENT_ID: ${MQTT_CLIENT_ID}-api
     ports:
-      - "${API_PORT:-3000}:3000"
+      # Bound to loopback only: the API is reached via nginx over the compose network
+      # (proxy_pass http://api:3000). The host port stays off the public interface.
+      - "127.0.0.1:${API_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:'+(process.env.API_PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
@@ -149,7 +151,8 @@ services:
       MQTT_INBOUND_CONCURRENCY: ${MQTT_INBOUND_CONCURRENCY:-16}
       PUBLISH_BATCH_SIZE: ${PUBLISH_BATCH_SIZE:-50}
     ports:
-      - "${WORKER_HEALTH_PORT:-9100}:9100"
+      # Loopback only: scraped by Prometheus over the compose network (mqtt-worker:9100).
+      - "127.0.0.1:${WORKER_HEALTH_PORT:-9100}:9100"
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:'+(process.env.WORKER_HEALTH_PORT||9100)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
@@ -192,7 +195,7 @@ services:
       - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
 
   # Routes Prometheus alerts to a webhook/Slack/email. Config: infra/alertmanager/alertmanager.yml
   alertmanager:
@@ -207,7 +210,7 @@ services:
       - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
     ports:
-      - "${ALERTMANAGER_PORT:-9093}:9093"
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
 
   grafana:
     image: grafana/grafana:11.2.0
@@ -226,7 +229,7 @@ services:
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - "${GRAFANA_PORT:-3001}:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
 
 volumes:
   postgres-data:
