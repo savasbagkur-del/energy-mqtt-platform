@@ -59,6 +59,14 @@
   --on-ink: #1f351e;
   --warn-ink: #3a2a08;
 
+  /* Status colors used as TEXT on light soft backgrounds — darkened for legibility.
+     Overridden in the dark theme back to the brighter base tones. */
+  --on-text: #3C7A3A;
+  --warn-text: #95641A;
+  --bad-text: #B23B3B;
+  --info-text: #34699A;
+  --brand-text: #2F8F89;
+
   --radius: 14px;
   --radius-sm: 9px;
   --radius-lg: 20px;
@@ -104,6 +112,12 @@
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px rgba(0,0,0,.45);
   --shadow-lg: 0 20px 50px rgba(0,0,0,.55);
   --glow: 0 0 0 1px rgba(63,167,160,.0);
+  /* On dark soft backgrounds the brighter base tones read well */
+  --on-text: var(--on);
+  --warn-text: var(--warn);
+  --bad-text: #E06A6A;
+  --info-text: var(--info);
+  --brand-text: var(--brand-2);
   color-scheme: dark;
 }
 
@@ -118,7 +132,7 @@ body {
   font-size: 14px;
   line-height: 1.5;
 }
-a { color: var(--brand-2); text-decoration: none; }
+a { color: var(--brand-text); text-decoration: none; }
 ::selection { background: rgba(63,167,160,.25); }
 
 /* Scrollbars */
@@ -159,7 +173,7 @@ a { color: var(--brand-2); text-decoration: none; }
 .conn-chip.ok .dot { background: var(--on); box-shadow: 0 0 0 4px var(--on-soft); }
 .conn-chip.bad .dot { background: var(--bad); box-shadow: 0 0 0 4px var(--bad-soft); }
 .legacy-link { font-size: 12px; color: var(--muted); }
-.legacy-link:hover { color: var(--brand-2); }
+.legacy-link:hover { color: var(--brand-text); }
 
 .main { display: flex; flex-direction: column; min-width: 0; }
 
@@ -223,15 +237,15 @@ select { cursor: pointer; }
 
 .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; line-height: 1.4; }
 .pill .pdot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.pill.on { background: var(--on-soft); color: var(--on); }
+.pill.on { background: var(--on-soft); color: var(--on-text); }
 .pill.off { background: var(--off-soft); color: var(--txt-2); }
-.pill.warn { background: var(--warn-soft); color: var(--warn); }
-.pill.bad { background: var(--bad-soft); color: var(--bad); }
-.pill.info { background: var(--info-soft); color: var(--info); }
+.pill.warn { background: var(--warn-soft); color: var(--warn-text); }
+.pill.bad { background: var(--bad-soft); color: var(--bad-text); }
+.pill.info { background: var(--info-soft); color: var(--info-text); }
 .pill.neutral { background: var(--off-soft); color: var(--txt-2); }
-.pill.registered { background: var(--on-soft); color: var(--on); }
-.pill.auto { background: var(--info-soft); color: var(--info); }
-.pill.quarantined { background: var(--bad-soft); color: var(--bad); }
+.pill.registered { background: var(--on-soft); color: var(--on-text); }
+.pill.auto { background: var(--info-soft); color: var(--info-text); }
+.pill.quarantined { background: var(--bad-soft); color: var(--bad-text); }
 
 .muted { color: var(--muted); }
 .mono { font-family: var(--mono); }
@@ -243,14 +257,14 @@ select { cursor: pointer; }
 .kpi::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--brand-grad); opacity: .0; }
 .kpi.accent::after { opacity: 1; }
 .kpi .kpi-top { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-.kpi .kpi-ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--panel-3); color: var(--brand-2); }
+.kpi .kpi-ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--panel-3); color: var(--brand-text); }
 .kpi .kpi-ic .ic { width: 18px; height: 18px; }
 .kpi .kpi-val { font-size: 30px; font-weight: 800; letter-spacing: -.02em; margin-top: 10px; line-height: 1; font-variant-numeric: tabular-nums; }
 .kpi .kpi-val small { font-size: 14px; font-weight: 700; color: var(--muted); margin-left: 4px; }
 .kpi .kpi-sub { margin-top: 8px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
-.kpi.good .kpi-ic { color: var(--on); } .kpi.good .kpi-val { color: var(--on); }
-.kpi.bad .kpi-ic { color: var(--bad); } .kpi.bad .kpi-val { color: var(--bad); }
-.kpi.warn .kpi-ic { color: var(--warn); }
+.kpi.good .kpi-ic { color: var(--on-text); } .kpi.good .kpi-val { color: var(--on-text); }
+.kpi.bad .kpi-ic { color: var(--bad-text); } .kpi.bad .kpi-val { color: var(--bad-text); }
+.kpi.warn .kpi-ic { color: var(--warn-text); }
 
 .grid-2 { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; align-items: start; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -310,11 +324,11 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .relay-badge .rb-state { font-size: 30px; font-weight: 900; letter-spacing: .02em; }
 .relay-badge .rb-sub { font-size: 12px; color: var(--muted); }
 .relay-badge.on { background: var(--on-soft); border-color: rgba(127,183,126,.5); }
-.relay-badge.on .rb-state { color: var(--on); }
+.relay-badge.on .rb-state { color: var(--on-text); }
 .relay-badge.off { background: var(--off-soft); border-color: var(--line-2); }
 .relay-badge.off .rb-state { color: var(--txt-2); }
 .relay-badge.unknown { background: var(--warn-soft); border-color: rgba(224,168,78,.5); }
-.relay-badge.unknown .rb-state { color: var(--warn); }
+.relay-badge.unknown .rb-state { color: var(--warn-text); }
 .switch-actions { display: flex; flex-direction: column; gap: 9px; flex: 1; min-width: 200px; }
 .switch-actions .row { display: flex; gap: 9px; }
 .switch-actions .row .btn { flex: 1; justify-content: center; }
@@ -383,9 +397,9 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .alarm-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .alarm-item:hover { background: var(--panel-2); }
 .alarm-item .a-ic { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; flex: none; }
-.alarm-item.sev-bad .a-ic { background: var(--bad-soft); color: var(--bad); }
-.alarm-item.sev-warn .a-ic { background: var(--warn-soft); color: var(--warn); }
-.alarm-item.sev-info .a-ic { background: var(--info-soft); color: var(--info); }
+.alarm-item.sev-bad .a-ic { background: var(--bad-soft); color: var(--bad-text); }
+.alarm-item.sev-warn .a-ic { background: var(--warn-soft); color: var(--warn-text); }
+.alarm-item.sev-info .a-ic { background: var(--info-soft); color: var(--info-text); }
 .alarm-item .a-main { flex: 1; min-width: 0; }
 .alarm-item .a-title { font-weight: 600; }
 .alarm-item .a-sub { color: var(--muted); font-size: 12.5px; }

@@ -649,7 +649,7 @@
     const owe = m.owe_money;
     return `<div class="metric"><div class="m-label">Enerji (kWh)</div><div class="m-val">${m.energy_import_kwh != null ? nf(m.energy_import_kwh, 2) : "—"}</div></div>
       <div class="metric"><div class="m-label">Bakiye</div><div class="m-val">${m.balance != null ? nf(m.balance, 2) : "—"}<small>₺</small></div></div>
-      <div class="metric"><div class="m-label">Borç durumu</div><div class="m-val" style="color:${owe > 0 ? "var(--bad)" : "var(--on)"}">${owe == null ? "—" : owe > 0 ? "Borçlu" : "Yok"}</div></div>
+      <div class="metric"><div class="m-label">Borç durumu</div><div class="m-val" style="color:${owe > 0 ? "var(--bad-text)" : "var(--on-text)"}">${owe == null ? "—" : owe > 0 ? "Borçlu" : "Yok"}</div></div>
       <div class="metric"><div class="m-label">Reaktif (kVAr)</div><div class="m-val">${m.reactive_power_kvar != null ? nf(m.reactive_power_kvar, 2) : "—"}</div></div>`;
   }
   function connHtml(m, cv, online, lastSeen) {
