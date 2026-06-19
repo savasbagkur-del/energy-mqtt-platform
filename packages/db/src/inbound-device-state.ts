@@ -63,6 +63,7 @@ export const applyInboundDeviceAndLatestState = async (
     softcode: isLogin ? meta.softcode : null,
     softversion: isLogin ? meta.softversion : null,
     network: isLogin ? meta.network : null,
+    model: isLogin ? meta.model : null,
     whitelistEnabled: options.whitelistEnabled ?? false
   };
 

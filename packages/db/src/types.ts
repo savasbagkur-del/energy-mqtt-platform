@@ -128,6 +128,7 @@ export interface DeviceRow {
   softcode: string | null;
   softversion: string | null;
   network: unknown;
+  model: string | null;
   updated_at: string;
   registry_status: string;
   lifecycle_status: string;
