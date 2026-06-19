@@ -72,8 +72,9 @@ export interface DeviceMetadataFields {
 
 /**
  * Classify a device hardware model from its firmware-reported devname.
- * Returns a normalized model token used to pick the telemetry profile.
- * Unknown / missing devname => null => default profile (store every metric).
+ * Takes the model family prefix before the first dash and upper-cases it,
+ * e.g. "ADL300-EY-IOT" -> "ADL300", "DDSY1352-IOT" -> "DDSY1352".
+ * Used as a label and to derive the phase count (ADL3xx are three-phase).
  */
 export const resolveDeviceModel = (
   devname: string | null | undefined
@@ -81,11 +82,8 @@ export const resolveDeviceModel = (
   if (typeof devname !== "string") {
     return null;
   }
-  const upper = devname.toUpperCase();
-  if (upper.includes("ADL200")) {
-    return "ADL200";
-  }
-  return null;
+  const prefix = devname.trim().split("-")[0]?.trim().toUpperCase() ?? "";
+  return prefix.length > 0 ? prefix : null;
 };
 
 export const extractDeviceMetadata = (

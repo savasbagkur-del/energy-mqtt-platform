@@ -121,13 +121,10 @@ interface TelemetryMappedValues {
 /**
  * Per-device telemetry mode (chosen at registration).
  *
- *  'consumption' (Tuketim izleme): the analysis time-series keeps only voltage /
- *    current / total energy. Power, reactive power, power factor and the
- *    secondary fields are dropped from the sample. Power/reactive/PF are also
- *    nulled in the live snapshot.
- *  'analysis' (Enerji analiz): consumption set + active power + power factor.
- *    Reactive power and the secondary fields are dropped from the sample.
- *  null (legacy/unset): store every mapped metric.
+ *  'consumption' (Tuketim izleme): keep only voltage / current / total active
+ *    energy. Everything else is dropped from the analysis sample; power /
+ *    reactive / power factor are also nulled in the live snapshot.
+ *  'analysis' (Enerji analiz) and null (legacy/unset): store every mapped metric.
  *
  * Control/prepaid fields (switch_state, balance, owe_money, alarms, rssi) are
  * always preserved in device_latest_state so relay control and prepaid billing
@@ -152,17 +149,7 @@ const applySampleProfile = (
       macAddress: null
     };
   }
-  if (mode === "analysis") {
-    return {
-      ...mapped,
-      reactivePowerKvar: null,
-      balance: null,
-      switchState: null,
-      rssi: null,
-      channel: null,
-      macAddress: null
-    };
-  }
+  // analysis / legacy: store everything we mapped.
   return mapped;
 };
 
@@ -177,9 +164,6 @@ const applyLatestStateProfile = (
       reactivePowerKvar: null,
       powerFactor: null
     };
-  }
-  if (mode === "analysis") {
-    return { ...mapped, reactivePowerKvar: null };
   }
   return mapped;
 };

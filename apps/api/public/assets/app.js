@@ -718,6 +718,7 @@
             <button class="btn sm ghost" id="devBack">← Cihazlar</button>
             <h1 style="font-size:20px">${esc((reg && reg.label) || sn)}</h1>
             <span id="hdrPills" style="display:inline-flex;gap:8px;flex-wrap:wrap"></span>
+            ${reg && reg.model ? `<span class="pill info" title="Model / faz">${esc(reg.model)}${phaseInfo(reg.model) ? ` · ${phaseInfo(reg.model).label}` : ""}</span>` : ""}
           </div>
           <div class="sub mono">${esc(sn)}${reg && reg.customer_name ? ` · ${esc(reg.customer_name)}` : ""}${reg && (reg.address_line || reg.city) ? ` · ${esc([reg.address_line, reg.district, reg.city].filter(Boolean).join(", "))}` : ""}</div>
         </div>
@@ -784,6 +785,8 @@
                 <dt>Adres</dt><dd>${esc([reg.address_line, reg.district, reg.city].filter(Boolean).join(", ") || "—")}</dd>
                 <dt>Tarife</dt><dd>${esc(reg.tariff || "—")}</dd>
                 <dt>Bölge / Bayi</dt><dd>${esc([reg.region, reg.dealer].filter(Boolean).join(" / ") || "—")}</dd>
+                <dt>Model / Faz</dt><dd>${esc(reg.model || "—")}${phaseInfo(reg.model) ? ` · ${phaseInfo(reg.model).label}` : ""}</dd>
+                <dt>İzleme tipi</dt><dd>${esc(telemetryModeLabel(reg.telemetry_mode))}</dd>
                 <dt>Yaşam döngüsü</dt><dd><span class="pill neutral">${esc(reg.lifecycle_status)}</span></dd>
                 <dt>Ürün anahtarı</dt><dd class="mono">${esc(reg.product_key || "—")}</dd>
               </dl>
@@ -818,6 +821,18 @@
   }
 
   function onlinePill(on) { return `<span class="pill ${on ? "on" : "off"}"><span class="pdot"></span>${on ? "Çevrimiçi" : "Çevrimdışı"}</span>`; }
+  // Phase count derived from the model family (ADL3xx / DTS* meters are three-phase).
+  function phaseInfo(model) {
+    if (!model) return null;
+    const m = String(model).toUpperCase();
+    const threePhase = /^ADL3\d/.test(m) || /^DTS/.test(m) || /^DTZ/.test(m);
+    return threePhase ? { n: 3, label: "3 Faz" } : { n: 1, label: "1 Faz" };
+  }
+  function telemetryModeLabel(mode) {
+    if (mode === "consumption") return "Tüketim izleme";
+    if (mode === "analysis") return "Enerji analiz";
+    return "—";
+  }
   function gaugeMax(v, base) { if (v == null) return base; const n = Number(v); return n > base * 0.9 ? Math.ceil(n * 1.3) : base; }
 
   function commandTimeline(cmds) {

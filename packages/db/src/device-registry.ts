@@ -83,7 +83,7 @@ const REGISTRY_SELECT = `
     d.customer_id::text AS customer_id, c.name AS customer_name,
     d.property_type_id, pt.code AS property_type_code, pt.label AS property_type_label,
     d.address_line, d.district, d.city, d.lat, d.lng,
-    d.tariff, d.region, d.dealer, d.install_date, d.notes, d.telemetry_mode,
+    d.tariff, d.region, d.dealer, d.install_date, d.notes, d.telemetry_mode, d.model,
     d.registry_status, d.lifecycle_status, d.registered_at, d.commissioned_at, d.last_seen_at
   FROM devices d
   LEFT JOIN customers c ON c.id = d.customer_id

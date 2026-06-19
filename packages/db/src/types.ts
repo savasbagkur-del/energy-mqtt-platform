@@ -180,6 +180,7 @@ export interface DeviceRegistryRow {
   install_date: string | null;
   notes: string | null;
   telemetry_mode: string | null;
+  model: string | null;
   registry_status: string;
   lifecycle_status: string;
   registered_at: string | null;
