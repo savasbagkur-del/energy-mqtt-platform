@@ -9,7 +9,10 @@
   const SETTINGS_KEY = "v4a.settings";
   const TOKEN_KEY = "apiToken"; // panel session JWT (shared key name w/ legacy pages)
   const USER_KEY = "v4a.user";
-  const defaultSettings = { refreshMs: 5000, onlineWindowSec: 300, theme: "light", offlineAlarmMin: 15 };
+  // Bump THEME_REV to force a one-time reset of the saved theme to the current default
+  // (so stale "dark" preferences from before the Storm Clay redesign flip to light once).
+  const THEME_REV = 2;
+  const defaultSettings = { refreshMs: 5000, onlineWindowSec: 300, theme: "light", offlineAlarmMin: 15, themeRev: THEME_REV };
 
   function loadUser() {
     try { const u = JSON.parse(localStorage.getItem(USER_KEY) || "null"); return u && u.username ? u : null; }
@@ -29,7 +32,10 @@
   function loadSettings() {
     try {
       const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-      return Object.assign({}, defaultSettings, raw);
+      const merged = Object.assign({}, defaultSettings, raw);
+      // One-time migration: snap to the new light default if the saved prefs predate it.
+      if (merged.themeRev !== THEME_REV) { merged.theme = "light"; merged.themeRev = THEME_REV; }
+      return merged;
     } catch { return Object.assign({}, defaultSettings); }
   }
   function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)); }
