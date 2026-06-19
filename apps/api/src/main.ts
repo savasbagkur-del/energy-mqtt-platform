@@ -46,8 +46,20 @@ import {
   getDeviceRegistry,
   listDevicesRegistry,
   approveQuarantinedDevice,
-  setDeviceLifecycle
+  setDeviceLifecycle,
+  getFleetOverview,
+  listFleetDevices,
+  getDeviceTelemetry,
+  getTelemetrySeries,
+  countPanelUsers,
+  getPanelUserByUsername,
+  getPanelUserById,
+  listPanelUsers,
+  createPanelUser,
+  updatePanelUser,
+  markPanelUserLogin
 } from "@communication/db";
+import type { PanelUserRole } from "@communication/db";
 import type { DeviceMetadataInput, ListDevicesRegistryFilter } from "@communication/db";
 import type { CommandType, UpdatePolicyProfileInput } from "@communication/db";
 
@@ -104,10 +116,12 @@ app.use(express.text({ type: ["text/csv", "text/plain"], limit: "8mb" }));
 // Served before auth so the page itself loads and can prompt for the token.
 app.use(express.static(path.join(process.cwd(), "public")));
 
-// Bearer-token auth. Probes/scrapers (/health,/ready,/metrics) stay open. When no token is
-// configured, auth is disabled (dev convenience) with a loud boot warning.
+// Auth. Probes/scrapers (/health,/ready,/metrics) and the login endpoint stay open. Two credential
+// kinds are accepted on protected routes:
+//   1) the static service token (API_AUTH_TOKEN) — for machine/backend callers (treated as admin);
+//   2) a panel session JWT issued by POST /auth/login — for named human accounts with roles.
 const apiAuthToken = appConfig.apiAuthToken;
-const OPEN_PATHS = new Set(["/health", "/ready", "/metrics"]);
+const OPEN_PATHS = new Set(["/health", "/ready", "/metrics", "/auth/login"]);
 const safeEqual = (a: string, b: string): boolean => {
   const ab = Buffer.from(a);
   const bb = Buffer.from(b);
@@ -117,22 +131,136 @@ const safeEqual = (a: string, b: string): boolean => {
   return crypto.timingSafeEqual(ab, bb);
 };
 if (!apiAuthToken) {
-  console.warn("[api] WARNING: API_AUTH_TOKEN not set — API authentication is DISABLED (open API)");
+  console.warn("[api] WARNING: API_AUTH_TOKEN not set — service token auth is DISABLED");
 }
+
+// ---- panel session (JWT, HS256) + password hashing — zero external deps (node:crypto only).
+type AuthUser = { id: string | null; username: string; role: PanelUserRole; kind: "service" | "user" };
+const JWT_TTL_SEC = 12 * 60 * 60;
+// Derive a stable signing key from the service token so no extra env/secret is required.
+const jwtSecret = crypto
+  .createHash("sha256")
+  .update(`v4a-panel-jwt:${apiAuthToken ?? "insecure-dev-secret"}`)
+  .digest();
+
+const signJwt = (payload: Record<string, unknown>): string => {
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const body = Buffer.from(JSON.stringify({ ...payload, iat: now, exp: now + JWT_TTL_SEC })).toString(
+    "base64url"
+  );
+  const data = `${header}.${body}`;
+  const sig = crypto.createHmac("sha256", jwtSecret).update(data).digest("base64url");
+  return `${data}.${sig}`;
+};
+
+const verifyJwt = (token: string): Record<string, unknown> | null => {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return null;
+  }
+  const [header, body, sig] = parts as [string, string, string];
+  const expected = crypto.createHmac("sha256", jwtSecret).update(`${header}.${body}`).digest("base64url");
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return null;
+  }
+  let claims: Record<string, unknown>;
+  try {
+    claims = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  const exp = claims.exp;
+  if (typeof exp === "number" && Math.floor(Date.now() / 1000) > exp) {
+    return null;
+  }
+  return claims;
+};
+
+const hashPassword = (password: string): string => {
+  const salt = crypto.randomBytes(16);
+  const dk = crypto.scryptSync(password, salt, 32);
+  return `scrypt$${salt.toString("hex")}$${dk.toString("hex")}`;
+};
+
+const verifyPassword = (password: string, stored: string): boolean => {
+  const parts = stored.split("$");
+  if (parts.length !== 3 || parts[0] !== "scrypt") {
+    return false;
+  }
+  try {
+    const salt = Buffer.from(parts[1]!, "hex");
+    const expected = Buffer.from(parts[2]!, "hex");
+    const dk = crypto.scryptSync(password, salt, expected.length);
+    return dk.length === expected.length && crypto.timingSafeEqual(dk, expected);
+  } catch {
+    return false;
+  }
+};
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      authUser?: AuthUser;
+    }
+  }
+}
+
 app.use((req, res, next) => {
-  if (!apiAuthToken || OPEN_PATHS.has(req.path)) {
+  if (OPEN_PATHS.has(req.path)) {
     next();
     return;
   }
   const header = req.get("authorization") ?? "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
   const presented = match?.[1];
-  if (presented === undefined || !safeEqual(presented, apiAuthToken)) {
-    res.status(401).json({ error: "unauthorized" });
+  if (presented !== undefined) {
+    if (apiAuthToken && safeEqual(presented, apiAuthToken)) {
+      req.authUser = { id: null, username: "service", role: "admin", kind: "service" };
+      next();
+      return;
+    }
+    const claims = verifyJwt(presented);
+    if (claims && typeof claims.sub === "string") {
+      req.authUser = {
+        id: claims.sub,
+        username: typeof claims.username === "string" ? claims.username : "user",
+        role: (claims.role === "admin" || claims.role === "operator" || claims.role === "viewer"
+          ? claims.role
+          : "viewer") as PanelUserRole,
+        kind: "user"
+      };
+      next();
+      return;
+    }
+  }
+  res.status(401).json({ error: "unauthorized" });
+});
+
+/** Guard: only admins (and the service token) may pass. */
+const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction): void => {
+  if (req.authUser?.role === "admin") {
+    next();
     return;
   }
-  next();
-});
+  res.status(403).json({ error: "forbidden", detail: "admin role required" });
+};
+
+/** Guard: viewers cannot mutate device state (switch/refresh). admin+operator may. */
+const requireControl = (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+): void => {
+  if (req.authUser?.role === "admin" || req.authUser?.role === "operator") {
+    next();
+    return;
+  }
+  res.status(403).json({ error: "forbidden", detail: "control role required" });
+};
 
 const port = appConfig.apiPort ?? 3000;
 const dbPool = createDbPool({
@@ -169,6 +297,181 @@ app.get("/health", (_req, res) => {
     status: "ok",
     service: "api"
   });
+});
+
+// ================================================================ AUTH (panel accounts)
+const VALID_ROLES: PanelUserRole[] = ["admin", "operator", "viewer"];
+const isValidRole = (v: unknown): v is PanelUserRole =>
+  typeof v === "string" && (VALID_ROLES as string[]).includes(v);
+const isValidUsername = (v: unknown): v is string =>
+  typeof v === "string" && /^[a-zA-Z0-9._-]{3,32}$/.test(v);
+
+app.post("/auth/login", async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const username = typeof body.username === "string" ? body.username.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!username || !password) {
+    res.status(400).json({ error: "missing_credentials" });
+    return;
+  }
+  try {
+    const user = await getPanelUserByUsername(dbPool, username);
+    if (!user || !user.is_active || !verifyPassword(password, user.password_hash)) {
+      res.status(401).json({ error: "invalid_credentials" });
+      return;
+    }
+    const token = signJwt({ sub: user.id, username: user.username, role: user.role });
+    void markPanelUserLogin(dbPool, user.id).catch(() => {});
+    res.status(200).json({
+      token,
+      user: { id: user.id, username: user.username, role: user.role }
+    });
+  } catch (error) {
+    console.error("[api] login failed", { username, message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "login_failed" });
+  }
+});
+
+app.get("/auth/me", (req, res) => {
+  if (!req.authUser) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  res.status(200).json({
+    id: req.authUser.id,
+    username: req.authUser.username,
+    role: req.authUser.role,
+    kind: req.authUser.kind
+  });
+});
+
+// ---- self-service: change own password (any signed-in panel user; verifies current password)
+app.post("/auth/password", async (req, res) => {
+  const u = req.authUser;
+  if (!u || u.kind !== "user" || !u.id) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+  const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+  if (newPassword.length < 8) {
+    res.status(400).json({ error: "weak_password", detail: "min 8 characters" });
+    return;
+  }
+  try {
+    const row = await getPanelUserById(dbPool, u.id);
+    if (!row || !verifyPassword(currentPassword, row.password_hash)) {
+      res.status(401).json({ error: "invalid_current_password" });
+      return;
+    }
+    await updatePanelUser(dbPool, u.id, { passwordHash: hashPassword(newPassword) });
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error("[api] change password failed", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "change_password_failed" });
+  }
+});
+
+// ---- admin: user management
+app.get("/admin/users", requireAdmin, async (_req, res) => {
+  try {
+    const users = await listPanelUsers(dbPool);
+    res.status(200).json({ users });
+  } catch (error) {
+    console.error("[api] list users failed", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "list_users_failed" });
+  }
+});
+
+app.post("/admin/users", requireAdmin, async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const username = typeof body.username === "string" ? body.username.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  const role = body.role;
+  if (!isValidUsername(username)) {
+    res.status(400).json({ error: "invalid_username", detail: "3-32 chars: letters, digits, . _ -" });
+    return;
+  }
+  if (password.length < 8) {
+    res.status(400).json({ error: "weak_password", detail: "min 8 characters" });
+    return;
+  }
+  if (!isValidRole(role)) {
+    res.status(400).json({ error: "invalid_role" });
+    return;
+  }
+  try {
+    const existing = await getPanelUserByUsername(dbPool, username);
+    if (existing) {
+      res.status(409).json({ error: "username_taken" });
+      return;
+    }
+    const user = await createPanelUser(dbPool, { username, passwordHash: hashPassword(password), role });
+    res.status(201).json({ user });
+  } catch (error) {
+    console.error("[api] create user failed", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "create_user_failed" });
+  }
+});
+
+app.patch("/admin/users/:id", requireAdmin, async (req, res) => {
+  const id = req.params.id ?? "";
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const patch: { passwordHash?: string; role?: PanelUserRole; isActive?: boolean } = {};
+  if (typeof body.password === "string") {
+    if (body.password.length < 8) {
+      res.status(400).json({ error: "weak_password", detail: "min 8 characters" });
+      return;
+    }
+    patch.passwordHash = hashPassword(body.password);
+  }
+  if (body.role !== undefined) {
+    if (!isValidRole(body.role)) {
+      res.status(400).json({ error: "invalid_role" });
+      return;
+    }
+    patch.role = body.role;
+  }
+  if (typeof body.isActive === "boolean") {
+    patch.isActive = body.isActive;
+  } else if (typeof body.is_active === "boolean") {
+    patch.isActive = body.is_active;
+  }
+  // Guard: don't let an admin lock the system out by demoting/disabling the last active admin.
+  try {
+    if (patch.role && patch.role !== "admin") {
+      const target = await getPanelUserById(dbPool, id);
+      if (target?.role === "admin") {
+        const users = await listPanelUsers(dbPool);
+        const activeAdmins = users.filter((u) => u.role === "admin" && u.is_active).length;
+        if (activeAdmins <= 1) {
+          res.status(409).json({ error: "last_admin", detail: "cannot demote the last active admin" });
+          return;
+        }
+      }
+    }
+    if (patch.isActive === false) {
+      const target = await getPanelUserById(dbPool, id);
+      if (target?.role === "admin") {
+        const users = await listPanelUsers(dbPool);
+        const activeAdmins = users.filter((u) => u.role === "admin" && u.is_active).length;
+        if (activeAdmins <= 1) {
+          res.status(409).json({ error: "last_admin", detail: "cannot disable the last active admin" });
+          return;
+        }
+      }
+    }
+    const updated = await updatePanelUser(dbPool, id, patch);
+    if (!updated) {
+      res.status(404).json({ error: "user_not_found" });
+      return;
+    }
+    res.status(200).json({ user: updated });
+  } catch (error) {
+    console.error("[api] update user failed", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "update_user_failed" });
+  }
 });
 
 app.get("/ready", async (_req, res) => {
@@ -367,8 +670,8 @@ const deviceBusyResponseBody = (error: unknown): Record<string, unknown> => {
   };
 };
 
-app.post("/devices/:sn/commands/refresh", async (req, res) => {
-  const sn = req.params.sn;
+app.post("/devices/:sn/commands/refresh", requireControl, async (req, res) => {
+  const sn = req.params.sn ?? "";
   try {
     const command = await createDeviceCommand(
       sn,
@@ -450,16 +753,16 @@ const handleForceSwitch = async (req: express.Request, res: express.Response, va
   }
 };
 
-app.post("/devices/:sn/commands/force-switch-0", (req, res) => {
+app.post("/devices/:sn/commands/force-switch-0", requireControl, (req, res) => {
   void handleForceSwitch(req, res, 0);
 });
 
-app.post("/devices/:sn/commands/force-switch-1", (req, res) => {
+app.post("/devices/:sn/commands/force-switch-1", requireControl, (req, res) => {
   void handleForceSwitch(req, res, 1);
 });
 
-app.put("/devices/:sn/desired/switch", async (req, res) => {
-  const sn = req.params.sn;
+app.put("/devices/:sn/desired/switch", requireControl, async (req, res) => {
+  const sn = req.params.sn ?? "";
   const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
   const rawValue = body.value ?? body.switch;
   const value: 0 | 1 | null = rawValue === 0 || rawValue === "0" ? 0 : rawValue === 1 || rawValue === "1" ? 1 : null;
@@ -491,8 +794,8 @@ app.put("/devices/:sn/desired/switch", async (req, res) => {
   }
 });
 
-app.delete("/devices/:sn/desired/switch", async (req, res) => {
-  const sn = req.params.sn;
+app.delete("/devices/:sn/desired/switch", requireControl, async (req, res) => {
+  const sn = req.params.sn ?? "";
   try {
     const row = await cancelDesiredState(dbPool, sn);
     if (!row) {
@@ -1345,6 +1648,77 @@ app.get("/devices/:sn/summary", async (req, res) => {
     const message = error instanceof Error ? error.message : "unknown db read error";
     console.error("[api] failed to fetch device summary", { sn, message });
     res.status(500).json({ error: "failed_to_fetch_device_summary" });
+  }
+});
+
+// ---- Fleet command center (dashboard read models) ----
+
+app.get("/fleet/overview", async (req, res) => {
+  try {
+    const win = typeof req.query.window === "string" ? Number(req.query.window) : undefined;
+    res.status(200).json(await getFleetOverview(dbPool, win));
+  } catch (error) {
+    console.error("[api] failed to build fleet overview", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_build_fleet_overview" });
+  }
+});
+
+app.get("/fleet/devices", async (req, res) => {
+  try {
+    const onlineParam = typeof req.query.online === "string" ? req.query.online : null;
+    const filter: import("@communication/db").ListFleetDevicesFilter = {
+      status: typeof req.query.status === "string" ? req.query.status : null,
+      search: typeof req.query.q === "string" ? req.query.q : null,
+      online: onlineParam === "true" ? true : onlineParam === "false" ? false : null
+    };
+    if (req.query.alarm === "true") filter.alarm = true;
+    if (req.query.owing === "true") filter.owing = true;
+    if (typeof req.query.window === "string") filter.onlineWindowSec = Number(req.query.window);
+    if (typeof req.query.limit === "string") filter.limit = Number(req.query.limit);
+    if (typeof req.query.offset === "string") filter.offset = Number(req.query.offset);
+    const result = await listFleetDevices(dbPool, filter);
+    res.status(200).json({ count: result.items.length, total: result.total, items: result.items });
+  } catch (error) {
+    console.error("[api] failed to list fleet devices", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_fleet_devices" });
+  }
+});
+
+// Decoded live telemetry snapshot (voltage/current/power/PF/energy/balance/switch/rssi/alarms).
+app.get("/devices/:sn/telemetry", async (req, res) => {
+  const sn = req.params.sn;
+  try {
+    const row = await getDeviceTelemetry(dbPool, sn);
+    if (!row) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    res.status(200).json(row);
+  } catch (error) {
+    console.error("[api] failed to fetch device telemetry", { sn, message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_fetch_device_telemetry" });
+  }
+});
+
+// Bucketed historical trend for charts. ?range=1h|6h|24h|7d|30d (auto-picks the bucket size).
+const SERIES_RANGES: Record<string, { sinceSec: number; bucketSec: number }> = {
+  "1h": { sinceSec: 3600, bucketSec: 60 },
+  "6h": { sinceSec: 6 * 3600, bucketSec: 300 },
+  "24h": { sinceSec: 24 * 3600, bucketSec: 900 },
+  "7d": { sinceSec: 7 * 86400, bucketSec: 3600 },
+  "30d": { sinceSec: 30 * 86400, bucketSec: 6 * 3600 }
+};
+
+app.get("/devices/:sn/telemetry/series", async (req, res) => {
+  const sn = req.params.sn;
+  const rangeKey = typeof req.query.range === "string" ? req.query.range : "24h";
+  const range = SERIES_RANGES[rangeKey] ?? SERIES_RANGES["24h"]!;
+  try {
+    const points = await getTelemetrySeries(dbPool, sn, range);
+    res.status(200).json({ sn, range: rangeKey in SERIES_RANGES ? rangeKey : "24h", points });
+  } catch (error) {
+    console.error("[api] failed to fetch telemetry series", { sn, message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_fetch_telemetry_series" });
   }
 });
 

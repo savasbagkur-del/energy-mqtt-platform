@@ -53,6 +53,26 @@ export const upsertDesiredSwitch = async (
           [input.sn, ACTIVE_COMMAND_STATUSES as unknown as string[]]
         );
         cancelledCommandIds = cancelled.rows.map((r) => r.id);
+
+        // Also cancel any in-flight verify/refresh children of switch commands for this
+        // device. Otherwise an orphaned post-switch refresh keeps retrying and — under
+        // single-flight — holds the in-flight slot, blocking the freshly requested switch
+        // command indefinitely (it just sits "scheduled" until it expires).
+        const cancelledChildren = await client.query<{ id: string }>(
+          `UPDATE commands
+           SET status = 'cancelled', completed_at = NOW(), updated_at = NOW(),
+               error_message = COALESCE(error_message, 'superseded by new desired switch (verify refresh)')
+           WHERE sn = $1
+             AND command_type = 'refresh'
+             AND status = ANY($2::text[])
+             AND parent_command_id IN (
+               SELECT id FROM commands
+               WHERE sn = $1 AND command_type IN ('force_switch_0', 'force_switch_1')
+             )
+           RETURNING id`,
+          [input.sn, ACTIVE_COMMAND_STATUSES as unknown as string[]]
+        );
+        cancelledCommandIds = cancelledCommandIds.concat(cancelledChildren.rows.map((r) => r.id));
         superseded = true;
       }
 

@@ -11,7 +11,7 @@
  *          ayrimi backend'de SERI NUMARASI uzerinden yapilir (filo modeli).
  *   3. (opsiyonel, ENABLE_AUTHZ=true) built_in_database yetkilendirme (authz) kurar:
  *        - backend: her topic'e pub/sub
- *        - cihaz: yalnizca cihaz topic aileleri (sys/#, data/#)
+ *        - cihaz: yalnizca cihaz topic aileleri (sys/#, data/#, indicate/#, notify/#)
  *        - eslesme yoksa: deny
  *
  * Kullanim:
@@ -146,7 +146,9 @@ const configureAuthz = async (token) => {
   await setUserRules(token, BACKEND_USER, [{ permission: "allow", action: "all", topic: "#" }]);
   await setUserRules(token, DEVICE_USER, [
     { permission: "allow", action: "all", topic: "sys/#" },
-    { permission: "allow", action: "all", topic: "data/#" }
+    { permission: "allow", action: "all", topic: "data/#" },
+    { permission: "allow", action: "all", topic: "indicate/#" },
+    { permission: "allow", action: "all", topic: "notify/#" }
   ]);
   const settings = await api(token, "GET", "/api/v5/authorization/settings");
   const next = { ...(settings.body && typeof settings.body === "object" ? settings.body : {}), no_match: "deny" };

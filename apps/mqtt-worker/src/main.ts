@@ -94,7 +94,7 @@ const env = {
   mqttPassword: appConfig.mqttPassword ?? undefined
 };
 
-const brokerUrl = `mqtt://${env.mqttHost}:${env.mqttPort}`;
+const brokerUrl = `${appConfig.mqttTls ? "mqtts" : "mqtt"}://${env.mqttHost}:${env.mqttPort}`;
 const dbConfig = {
   host: appConfig.postgresHost ?? "127.0.0.1",
   port: appConfig.postgresPort ?? 5433,
@@ -126,6 +126,11 @@ const mqttOptions: IClientOptions = {
   connectTimeout: 10_000,
   clean: appConfig.mqttCleanSession
 };
+
+if (appConfig.mqttTls) {
+  // TLS transport (mqtts://). rejectUnauthorized=false only for self-signed certs during bring-up.
+  mqttOptions.rejectUnauthorized = appConfig.mqttTlsRejectUnauthorized;
+}
 
 if (env.mqttUsername) {
   mqttOptions.username = env.mqttUsername;

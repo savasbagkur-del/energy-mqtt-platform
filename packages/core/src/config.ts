@@ -117,6 +117,13 @@ export interface AppConfig {
   mqttQos: MqttQos;
   /** When false, broker keeps a persistent session for this clientId (Faz 0: durable delivery). */
   mqttCleanSession: boolean;
+  /** Connect to the broker over TLS (mqtts://). Use with port 8883 in production. */
+  mqttTls: boolean;
+  /**
+   * Verify the broker's TLS certificate chain. Keep true with a real (e.g. Let's Encrypt) cert.
+   * Set false ONLY temporarily during bring-up when the broker uses a self-signed cert.
+   */
+  mqttTlsRejectUnauthorized: boolean;
   /** Structured logger threshold; per-message firehose logs run at `debug`. */
   logLevel: LogLevel;
   simulatorMode: boolean;
@@ -214,6 +221,8 @@ export const appConfig: AppConfig = Object.freeze({
   mqttClientId: readString(process.env.MQTT_CLIENT_ID),
   mqttQos: readMqttQos(process.env.MQTT_QOS, 1),
   mqttCleanSession: readBooleanWithDefault(process.env.MQTT_CLEAN_SESSION, false),
+  mqttTls: readBoolean(process.env.MQTT_TLS),
+  mqttTlsRejectUnauthorized: readBooleanWithDefault(process.env.MQTT_TLS_REJECT_UNAUTHORIZED, true),
   logLevel: readLogLevel(process.env.LOG_LEVEL, "info"),
   simulatorMode: readBoolean(process.env.SIMULATOR_MODE),
   commandTopicMode: readCommandTopicMode(process.env.COMMAND_TOPIC_MODE),
