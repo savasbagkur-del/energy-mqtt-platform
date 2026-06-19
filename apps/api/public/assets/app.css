@@ -35,8 +35,9 @@
   --color-border: rgba(40, 50, 60, 0.12);
   --color-border-strong: rgba(40, 50, 60, 0.2);
 
-  --shadow-card: 0 10px 28px rgba(40, 50, 60, 0.08);
-  --shadow-panel: 0 18px 45px rgba(40, 50, 60, 0.11);
+  --shadow-card: 0 1px 2px rgba(40, 50, 60, 0.05), 0 10px 26px rgba(40, 50, 60, 0.09);
+  --shadow-panel: 0 1px 3px rgba(40, 50, 60, 0.06), 0 18px 45px rgba(40, 50, 60, 0.12);
+  --shadow-hover: 0 2px 6px rgba(40, 50, 60, 0.08), 0 18px 40px rgba(40, 50, 60, 0.16);
 
   /* ---- Semantic accents (mapped onto the palette) ---- */
   --brand: var(--color-secondary);
@@ -53,6 +54,7 @@
   --bad-soft: var(--color-danger-soft);
   --info: var(--color-accent);
   --info-soft: var(--color-accent-soft);
+  --brand-soft: var(--color-secondary-soft);
 
   /* Readable ink on filled accent surfaces */
   --brand-ink: #ffffff;
@@ -111,6 +113,7 @@
   --muted: #7E8A95;
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px rgba(0,0,0,.45);
   --shadow-lg: 0 20px 50px rgba(0,0,0,.55);
+  --shadow-hover: 0 2px 6px rgba(0,0,0,.5), 0 18px 44px rgba(0,0,0,.6);
   --glow: 0 0 0 1px rgba(63,167,160,.0);
   /* On dark soft backgrounds the brighter base tones read well */
   --on-text: var(--on);
@@ -126,7 +129,11 @@ html, body { height: 100%; }
 body {
   margin: 0;
   font-family: var(--font);
-  background: radial-gradient(1200px 700px at 80% -10%, var(--color-secondary-soft), transparent 60%), var(--bg);
+  background:
+    radial-gradient(900px 520px at 88% -12%, var(--color-secondary-soft), transparent 55%),
+    radial-gradient(820px 520px at -6% 6%, var(--color-accent-soft), transparent 52%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--txt);
   -webkit-font-smoothing: antialiased;
   font-size: 14px;
@@ -213,8 +220,8 @@ svg.ic { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: ro
 .btn:hover { border-color: var(--line-2); background: var(--panel-2); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn .ic { width: 17px; height: 17px; }
-.btn.primary { background: var(--brand-grad); border-color: transparent; color: var(--brand-ink); }
-.btn.primary:hover { filter: brightness(1.06); }
+.btn.primary { background: var(--brand-grad); border-color: transparent; color: var(--brand-ink); box-shadow: 0 6px 16px rgba(84,110,122,.22); }
+.btn.primary:hover { filter: brightness(1.06); box-shadow: 0 8px 20px rgba(84,110,122,.3); }
 .btn.success { background: var(--on); border-color: transparent; color: var(--on-ink); }
 .btn.danger { background: var(--bad); border-color: transparent; color: #fff; }
 .btn.warn { background: var(--warn); border-color: transparent; color: var(--warn-ink); }
@@ -229,7 +236,7 @@ input, select, textarea { background: var(--panel-2); }
 input:focus, select:focus, textarea:focus { border-color: var(--brand-2); box-shadow: var(--focus-ring); }
 select { cursor: pointer; }
 
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.panel { background: linear-gradient(175deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .panel-pad { padding: 18px; }
 .panel-head { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
 .panel-head h2 { font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
@@ -253,18 +260,28 @@ select { cursor: pointer; }
 
 /* ============================================================ KPI cards */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 14px; margin-bottom: 18px; }
-.kpi { position: relative; overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 16px 15px; box-shadow: var(--shadow); }
-.kpi::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--brand-grad); opacity: .0; }
+.kpi { position: relative; overflow: hidden; background: linear-gradient(165deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 16px 15px; box-shadow: var(--shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.kpi:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); border-color: var(--line-2); }
+/* soft colored bloom in the corner for depth (brand by default) */
+.kpi::before { content: ""; position: absolute; top: -42px; right: -34px; width: 120px; height: 120px; border-radius: 50%; background: var(--brand-soft); opacity: .9; pointer-events: none; }
+/* always-on slim top accent (brand by default) */
+.kpi::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--brand-grad); opacity: .85; }
 .kpi.accent::after { opacity: 1; }
+.kpi > * { position: relative; }
 .kpi .kpi-top { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
-.kpi .kpi-ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--panel-3); color: var(--brand-text); }
+.kpi .kpi-ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand-text); }
 .kpi .kpi-ic .ic { width: 18px; height: 18px; }
 .kpi .kpi-val { font-size: 30px; font-weight: 800; letter-spacing: -.02em; margin-top: 10px; line-height: 1; font-variant-numeric: tabular-nums; }
 .kpi .kpi-val small { font-size: 14px; font-weight: 700; color: var(--muted); margin-left: 4px; }
 .kpi .kpi-sub { margin-top: 8px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
-.kpi.good .kpi-ic { color: var(--on-text); } .kpi.good .kpi-val { color: var(--on-text); }
-.kpi.bad .kpi-ic { color: var(--bad-text); } .kpi.bad .kpi-val { color: var(--bad-text); }
-.kpi.warn .kpi-ic { color: var(--warn-text); }
+.kpi.good .kpi-ic { background: var(--on-soft); color: var(--on-text); } .kpi.good .kpi-val { color: var(--on-text); }
+.kpi.good::before { background: var(--on-soft); } .kpi.good::after { background: linear-gradient(90deg, var(--on), var(--color-secondary)); }
+.kpi.bad .kpi-ic { background: var(--bad-soft); color: var(--bad-text); } .kpi.bad .kpi-val { color: var(--bad-text); }
+.kpi.bad::before { background: var(--bad-soft); } .kpi.bad::after { background: linear-gradient(90deg, var(--bad), var(--warn)); }
+.kpi.warn .kpi-ic { background: var(--warn-soft); color: var(--warn-text); }
+.kpi.warn::before { background: var(--warn-soft); } .kpi.warn::after { background: linear-gradient(90deg, var(--warn), var(--color-danger)); }
+.kpi.info .kpi-ic { background: var(--info-soft); color: var(--info-text); }
+.kpi.info::before { background: var(--info-soft); } .kpi.info::after { background: linear-gradient(90deg, var(--info), var(--color-secondary)); }
 
 .grid-2 { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; align-items: start; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
