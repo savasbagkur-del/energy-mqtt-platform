@@ -46,6 +46,7 @@ import {
   getDeviceRegistry,
   listDevicesRegistry,
   approveQuarantinedDevice,
+  checkDeviceApprovalReadiness,
   setDeviceLifecycle,
   getFleetOverview,
   listFleetDevices,
@@ -1429,6 +1430,20 @@ app.patch("/registry/devices/:sn", async (req, res) => {
 
 app.post("/registry/devices/:sn/approve", async (req, res) => {
   try {
+    const readiness = await checkDeviceApprovalReadiness(dbPool, req.params.sn);
+    if (!readiness.found) {
+      res.status(404).json({ error: "not_found" });
+      return;
+    }
+    if (readiness.missing.length > 0) {
+      res.status(422).json({
+        error: "missing_required_fields",
+        missing: readiness.missing,
+        message:
+          "Cihaz onaylanmadan önce kimin adına olduğu ve zorunlu bilgiler girilmeli."
+      });
+      return;
+    }
     const ok = await approveQuarantinedDevice(dbPool, req.params.sn);
     if (!ok) {
       res.status(404).json({ error: "not_quarantined_or_not_found" });

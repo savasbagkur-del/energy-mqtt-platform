@@ -271,6 +271,21 @@ export interface DeviceTelemetrySnapshot {
   rssi: number | null;
   channel: number | null;
   mac_address: string | null;
+  voltage_b_v: number | null;
+  voltage_c_v: number | null;
+  current_b_a: number | null;
+  current_c_a: number | null;
+  active_power_a_kw: number | null;
+  active_power_b_kw: number | null;
+  active_power_c_kw: number | null;
+  power_factor_a: number | null;
+  power_factor_b: number | null;
+  power_factor_c: number | null;
+  energy_sharp_kwh: number | null;
+  energy_peak_kwh: number | null;
+  energy_flat_kwh: number | null;
+  energy_valley_kwh: number | null;
+  max_demand_kw: number | null;
   updated_at: string;
 }
 
@@ -282,7 +297,12 @@ export const getDeviceTelemetry = async (
     `SELECT sn, product_key, last_seen_at, last_method, last_topic, source,
             voltage_v, current_a, active_power_kw, reactive_power_kvar, power_factor,
             energy_import_kwh, balance, switch_state, prestate, owe_money,
-            alarm_a, alarm_b, adf_state_1, adf_state_2, rssi, channel, mac_address, updated_at
+            alarm_a, alarm_b, adf_state_1, adf_state_2, rssi, channel, mac_address,
+            voltage_b_v, voltage_c_v, current_b_a, current_c_a,
+            active_power_a_kw, active_power_b_kw, active_power_c_kw,
+            power_factor_a, power_factor_b, power_factor_c,
+            energy_sharp_kwh, energy_peak_kwh, energy_flat_kwh, energy_valley_kwh,
+            max_demand_kw, updated_at
      FROM device_latest_state WHERE sn = $1`,
     [sn]
   );
@@ -312,6 +332,21 @@ export const getDeviceTelemetry = async (
     rssi: num(r.rssi),
     channel: num(r.channel),
     mac_address: (r.mac_address as string) ?? null,
+    voltage_b_v: num(r.voltage_b_v),
+    voltage_c_v: num(r.voltage_c_v),
+    current_b_a: num(r.current_b_a),
+    current_c_a: num(r.current_c_a),
+    active_power_a_kw: num(r.active_power_a_kw),
+    active_power_b_kw: num(r.active_power_b_kw),
+    active_power_c_kw: num(r.active_power_c_kw),
+    power_factor_a: num(r.power_factor_a),
+    power_factor_b: num(r.power_factor_b),
+    power_factor_c: num(r.power_factor_c),
+    energy_sharp_kwh: num(r.energy_sharp_kwh),
+    energy_peak_kwh: num(r.energy_peak_kwh),
+    energy_flat_kwh: num(r.energy_flat_kwh),
+    energy_valley_kwh: num(r.energy_valley_kwh),
+    max_demand_kw: num(r.max_demand_kw),
     updated_at: r.updated_at as string
   };
 };

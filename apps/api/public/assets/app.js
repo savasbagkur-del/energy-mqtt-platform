@@ -578,8 +578,7 @@
     }));
     $$("[data-approve]", body).forEach((b) => b.addEventListener("click", async (e) => {
       e.stopPropagation();
-      try { await api("POST", `/registry/devices/${encodeURIComponent(b.dataset.approve)}/approve`); toast("Onaylandı", `${b.dataset.approve} whitelist'e alındı`, "success"); loadDevices(true); }
-      catch (err) { toast("Onay hatası", err.message, "error"); }
+      await approveDevice(b.dataset.approve, () => loadDevices(true));
     }));
 
     const pager = $("#devPager");
@@ -658,6 +657,36 @@
       <div class="metric"><div class="m-label">Borç durumu</div><div class="m-val" style="color:${owe > 0 ? "var(--bad-text)" : "var(--on-text)"}">${owe == null ? "—" : owe > 0 ? "Borçlu" : "Yok"}</div></div>
       <div class="metric"><div class="m-label">Reaktif (kVAr)</div><div class="m-val">${m.reactive_power_kvar != null ? nf(m.reactive_power_kvar, 2) : "—"}</div></div>`;
   }
+  function threePhaseHtml(m) {
+    const cell = (v, d, u) => v != null ? `${nf(v, d)}<small>${u || ""}</small>` : "—";
+    const pa = m.active_power_a_kw != null ? m.active_power_a_kw : m.active_power_kw;
+    const pfa = m.power_factor_a != null ? m.power_factor_a : m.power_factor;
+    const rows = [
+      { ph: "L1", v: m.voltage_v, i: m.current_a, p: pa, pf: pfa },
+      { ph: "L2", v: m.voltage_b_v, i: m.current_b_a, p: m.active_power_b_kw, pf: m.power_factor_b },
+      { ph: "L3", v: m.voltage_c_v, i: m.current_c_a, p: m.active_power_c_kw, pf: m.power_factor_c }
+    ];
+    const hasPhase = rows.some((r) => r.v != null || r.i != null || r.p != null);
+    const tariff = [
+      { k: "Puant", v: m.energy_peak_kwh },
+      { k: "Gündüz", v: m.energy_flat_kwh },
+      { k: "Gece", v: m.energy_valley_kwh },
+      { k: "Sivri", v: m.energy_sharp_kwh }
+    ];
+    const hasTariff = tariff.some((t) => t.v != null);
+    if (!hasPhase && !hasTariff && m.max_demand_kw == null) {
+      return `<div class="empty">Bu cihazdan henüz faz/tarife verisi gelmedi. Enerji analiz modunda <code>data/up update</code> mesajı geldikçe dolar.</div>`;
+    }
+    const phaseTable = `<table class="phase-tbl">
+      <thead><tr><th>Faz</th><th>Gerilim</th><th>Akım</th><th>Güç</th><th>PF</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr><th>${r.ph}</th><td>${cell(r.v, 1, " V")}</td><td>${cell(r.i, 2, " A")}</td><td>${cell(r.p, 2, " kW")}</td><td>${cell(r.pf, 2, "")}</td></tr>`).join("")}</tbody>
+    </table>`;
+    const tariffCards = hasTariff ? `<div class="metric-cards" style="margin-top:14px">
+      ${tariff.map((t) => `<div class="metric"><div class="m-label">${t.k} (kWh)</div><div class="m-val">${t.v != null ? nf(t.v, 2) : "—"}</div></div>`).join("")}
+      ${m.max_demand_kw != null ? `<div class="metric"><div class="m-label">Maks. Talep</div><div class="m-val">${nf(m.max_demand_kw, 2)}<small>kW</small></div></div>` : ""}
+    </div>` : (m.max_demand_kw != null ? `<div class="metric-cards" style="margin-top:14px"><div class="metric"><div class="m-label">Maks. Talep</div><div class="m-val">${nf(m.max_demand_kw, 2)}<small>kW</small></div></div></div>` : "");
+    return phaseTable + tariffCards;
+  }
   function connHtml(m, cv, online, lastSeen) {
     const cad = cv && cv.cadence, at = cv && cv.adaptiveTiming;
     return `<dt>Durum</dt><dd>${onlineDot(online)}</dd>
@@ -684,6 +713,7 @@
     set("desiredSlot", desiredHtml(cv));
     set("gaugeSlot", gaugesHtml(m));
     set("metricSlot", metricsHtml(m));
+    set("phaseSlot", threePhaseHtml(m));
     set("connSlot", connHtml(m, cv, online, lastSeen));
     set("cmdSlot", commandTimeline(cv && cv.recentCommands));
     const method = document.getElementById("lastMethodTag");
@@ -711,6 +741,8 @@
     }
 
     // full skeleton build (static controls + live slots)
+    const _ph = reg ? phaseInfo(reg.model) : null;
+    const is3ph = !!(_ph && _ph.n === 3);
     view.innerHTML = `
       <div class="page-head">
         <div>
@@ -770,6 +802,11 @@
             <div class="panel-pad"><div class="metric-cards" id="metricSlot"></div></div>
           </div>
 
+          ${is3ph ? `<div class="panel">
+            <div class="panel-head"><h2>3 Faz Detay</h2><div class="panel-actions muted" style="font-size:12px">L1 / L2 / L3</div></div>
+            <div class="panel-pad" id="phaseSlot"></div>
+          </div>` : ""}
+
           <div class="panel">
             <div class="panel-head"><h2>Bağlantı & Sinyal</h2></div>
             <div class="panel-pad"><dl class="kv" id="connSlot"></dl></div>
@@ -809,7 +846,7 @@
     $("#btnClear").addEventListener("click", () => clearDesired(sn));
     $("#devRefreshCmd").addEventListener("click", () => refreshCmd(sn));
     if (reg) { const open = () => openRegisterModal(reg); const e1 = $("#devEdit"), e2 = $("#devEdit2"); if (e1) e1.addEventListener("click", open); if (e2) e2.addEventListener("click", open); }
-    const ap = $("#lcApprove"); if (ap) ap.addEventListener("click", async () => { try { await api("POST", `/registry/devices/${encodeURIComponent(sn)}/approve`); toast("Onaylandı", "", "success"); view.removeAttribute("data-device"); renderDevice(sn); } catch (e) { toast("Hata", e.message, "error"); } });
+    const ap = $("#lcApprove"); if (ap) ap.addEventListener("click", () => approveDevice(sn, () => { view.removeAttribute("data-device"); renderDevice(sn); }));
     const dc = $("#lcDecom"); if (dc) dc.addEventListener("click", async () => { if (!confirm("Cihaz devre dışı bırakılsın mı?")) return; try { await api("POST", `/registry/devices/${encodeURIComponent(sn)}/lifecycle`, { lifecycle: "decommissioned" }); toast("Güncellendi", "", "success"); view.removeAttribute("data-device"); renderDevice(sn); } catch (e) { toast("Hata", e.message, "error"); } });
     $$("#rangeSeg button", view).forEach((b) => b.addEventListener("click", () => {
       $$("#rangeSeg button", view).forEach((x) => x.classList.remove("active")); b.classList.add("active");
@@ -1142,6 +1179,22 @@
   function closeModal() { modalMount.innerHTML = ""; }
   modalMount.addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeModal(); });
 
+  async function approveDevice(sn, after) {
+    try {
+      await api("POST", `/registry/devices/${encodeURIComponent(sn)}/approve`);
+      toast("Onaylandı", `${sn} whitelist'e alındı`, "success");
+      if (after) after();
+    } catch (err) {
+      if (err.status === 422 && err.body && Array.isArray(err.body.missing)) {
+        toast("Onay engellendi", `${err.body.message || "Zorunlu bilgiler eksik."} Eksik: ${err.body.missing.join(", ")}`, "error");
+        const reg = await api("GET", `/registry/devices/${encodeURIComponent(sn)}`).catch(() => null);
+        openRegisterModal(reg || { sn });
+      } else {
+        toast("Onay hatası", err.message, "error");
+      }
+    }
+  }
+
   async function openRegisterModal(row) {
     await ensureLookups();
     const editing = !!row;
@@ -1154,13 +1207,13 @@
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal lg">
         <h3>${editing ? "Sayaç düzenle: " + esc(row.sn) : "Yeni sayaç kaydet"}</h3>
-        <p class="muted">Kayıtlı (registered) cihazlar whitelist'e girer ve yönetilir. Yalnızca dolu alanlar güncellenir.</p>
+        <p class="muted">Kayıtlı (registered) cihazlar whitelist'e girer ve yönetilir. Yalnızca dolu alanlar güncellenir. <strong>*</strong> ile işaretli alanlar cihaz <strong>onaylanmadan</strong> önce zorunludur.</p>
         <div class="form-grid">
           <div class="field"><label>SN *</label><input id="rf_sn" value="${v("sn")}" ${editing ? "disabled" : ""} /></div>
           <div class="field"><label>Etiket / Ad</label><input id="rf_label" value="${v("label")}" /></div>
-          <div class="field"><label>Abone / Sözleşme No</label><input id="rf_subscriber_no" value="${v("subscriber_no")}" /></div>
-          <div class="field"><label>Müşteri</label><select id="rf_customer_id">${cuOpts}</select></div>
-          <div class="field"><label>Mülk tipi</label><select id="rf_property_type_id">${ptOpts}</select></div>
+          <div class="field"><label>Abone / Sözleşme No *</label><input id="rf_subscriber_no" value="${v("subscriber_no")}" /></div>
+          <div class="field"><label>Müşteri (kimin adına) *</label><select id="rf_customer_id">${cuOpts}</select></div>
+          <div class="field"><label>Mülk tipi *</label><select id="rf_property_type_id">${ptOpts}</select></div>
           <div class="field"><label>İzleme tipi</label><select id="rf_telemetry_mode">${tmOpts}</select></div>
           <div class="field"><label>Ürün anahtarı</label><input id="rf_product_key" value="${v("product_key")}" /></div>
           <div class="field"><label>Tarife</label><input id="rf_tariff" value="${v("tariff")}" /></div>
@@ -1168,7 +1221,7 @@
           <div class="field"><label>Bayi</label><input id="rf_dealer" value="${v("dealer")}" /></div>
           <div class="field full"><label>Adres</label><input id="rf_address_line" value="${v("address_line")}" /></div>
           <div class="field"><label>İlçe</label><input id="rf_district" value="${v("district")}" /></div>
-          <div class="field"><label>İl</label><input id="rf_city" value="${v("city")}" /></div>
+          <div class="field"><label>İl *</label><input id="rf_city" value="${v("city")}" /></div>
           <div class="field"><label>Kurulum tarihi</label><input id="rf_install_date" type="date" value="${row && row.install_date ? String(row.install_date).slice(0, 10) : ""}" /></div>
           <div class="field"><label>Enlem</label><input id="rf_lat" type="number" step="any" value="${v("lat")}" /></div>
           <div class="field"><label>Boylam</label><input id="rf_lng" type="number" step="any" value="${v("lng")}" /></div>

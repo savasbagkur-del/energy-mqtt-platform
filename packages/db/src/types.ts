@@ -87,6 +87,21 @@ export interface TelemetrySampleRow {
   channel: number | null;
   mac_address: string | null;
   raw_id: string;
+  voltage_b_v: string | null;
+  voltage_c_v: string | null;
+  current_b_a: string | null;
+  current_c_a: string | null;
+  active_power_a_kw: string | null;
+  active_power_b_kw: string | null;
+  active_power_c_kw: string | null;
+  power_factor_a: string | null;
+  power_factor_b: string | null;
+  power_factor_c: string | null;
+  energy_sharp_kwh: string | null;
+  energy_peak_kwh: string | null;
+  energy_flat_kwh: string | null;
+  energy_valley_kwh: string | null;
+  max_demand_kw: string | null;
   created_at: string;
 }
 
@@ -116,6 +131,21 @@ export interface DeviceLatestStateRow {
   channel: number | null;
   mac_address: string | null;
   raw_id: string | null;
+  voltage_b_v: string | null;
+  voltage_c_v: string | null;
+  current_b_a: string | null;
+  current_c_a: string | null;
+  active_power_a_kw: string | null;
+  active_power_b_kw: string | null;
+  active_power_c_kw: string | null;
+  power_factor_a: string | null;
+  power_factor_b: string | null;
+  power_factor_c: string | null;
+  energy_sharp_kwh: string | null;
+  energy_peak_kwh: string | null;
+  energy_flat_kwh: string | null;
+  energy_valley_kwh: string | null;
+  max_demand_kw: string | null;
   updated_at: string;
 }
 

@@ -335,6 +335,14 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .metric .m-val { font-size: 21px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .metric .m-val small { font-size: 12px; color: var(--muted); font-weight: 700; margin-left: 3px; }
 
+/* ============================================================ 3-phase table */
+.phase-tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.phase-tbl th, .phase-tbl td { padding: 9px 8px; text-align: right; font-size: 13px; border-bottom: 1px solid var(--line); }
+.phase-tbl thead th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+.phase-tbl tbody th { text-align: left; font-weight: 800; color: var(--brand); }
+.phase-tbl tbody tr:last-child td, .phase-tbl tbody tr:last-child th { border-bottom: 0; }
+.phase-tbl td small { color: var(--muted); font-weight: 600; margin-left: 2px; font-size: 11px; }
+
 /* ============================================================ Switch control */
 .switch-hero { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
 .relay-badge { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 150px; padding: 18px 26px; border-radius: var(--radius); border: 1px solid var(--line); }

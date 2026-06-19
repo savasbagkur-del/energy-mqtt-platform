@@ -116,6 +116,22 @@ interface TelemetryMappedValues {
   rssi: number | null;
   channel: number | null;
   macAddress: string | null;
+  // Three-phase + tariff (richer meters such as ADL300; null on single-phase).
+  voltageBV: number | null;
+  voltageCV: number | null;
+  currentBA: number | null;
+  currentCA: number | null;
+  activePowerAKw: number | null;
+  activePowerBKw: number | null;
+  activePowerCKw: number | null;
+  powerFactorA: number | null;
+  powerFactorB: number | null;
+  powerFactorC: number | null;
+  energySharpKwh: number | null;
+  energyPeakKwh: number | null;
+  energyFlatKwh: number | null;
+  energyValleyKwh: number | null;
+  maxDemandKw: number | null;
 }
 
 /**
@@ -132,6 +148,25 @@ interface TelemetryMappedValues {
  */
 type TelemetryMode = "consumption" | "analysis" | null;
 
+// Per-phase + tariff metrics are dropped entirely in consumption mode.
+const PHASE_TARIFF_NULL = {
+  voltageBV: null,
+  voltageCV: null,
+  currentBA: null,
+  currentCA: null,
+  activePowerAKw: null,
+  activePowerBKw: null,
+  activePowerCKw: null,
+  powerFactorA: null,
+  powerFactorB: null,
+  powerFactorC: null,
+  energySharpKwh: null,
+  energyPeakKwh: null,
+  energyFlatKwh: null,
+  energyValleyKwh: null,
+  maxDemandKw: null
+} as const;
+
 const applySampleProfile = (
   mapped: TelemetryMappedValues,
   mode: TelemetryMode
@@ -146,7 +181,8 @@ const applySampleProfile = (
       switchState: null,
       rssi: null,
       channel: null,
-      macAddress: null
+      macAddress: null,
+      ...PHASE_TARIFF_NULL
     };
   }
   // analysis / legacy: store everything we mapped.
@@ -162,7 +198,8 @@ const applyLatestStateProfile = (
       ...mapped,
       activePowerKw: null,
       reactivePowerKvar: null,
-      powerFactor: null
+      powerFactor: null,
+      ...PHASE_TARIFF_NULL
     };
   }
   return mapped;
@@ -239,7 +276,22 @@ const mapTelemetryValues = (
       asText(bySn?.mac_address) ??
       asText(reported?.mac_address) ??
       asText(payloadJson?.mac_address) ??
-      asText(network?.mac)
+      asText(network?.mac),
+    voltageBV: toNumeric(bySn?.Ub),
+    voltageCV: toNumeric(bySn?.Uc),
+    currentBA: toNumeric(bySn?.Ib),
+    currentCA: toNumeric(bySn?.Ic),
+    activePowerAKw: toNumeric(bySn?.Pa),
+    activePowerBKw: toNumeric(bySn?.Pb),
+    activePowerCKw: toNumeric(bySn?.Pc),
+    powerFactorA: toNumeric(bySn?.PFa),
+    powerFactorB: toNumeric(bySn?.PFb),
+    powerFactorC: toNumeric(bySn?.PFc),
+    energySharpKwh: toNumeric(bySn?.EPIJ),
+    energyPeakKwh: toNumeric(bySn?.EPIF),
+    energyFlatKwh: toNumeric(bySn?.EPIP),
+    energyValleyKwh: toNumeric(bySn?.EPIG),
+    maxDemandKw: toNumeric(bySn?.MEPIMD)
   };
 };
 
@@ -329,9 +381,25 @@ const upsertDeviceLatestStateForDataUpdate = async (
       channel,
       mac_address,
       raw_id,
+      voltage_b_v,
+      voltage_c_v,
+      current_b_a,
+      current_c_a,
+      active_power_a_kw,
+      active_power_b_kw,
+      active_power_c_kw,
+      power_factor_a,
+      power_factor_b,
+      power_factor_c,
+      energy_sharp_kwh,
+      energy_peak_kwh,
+      energy_flat_kwh,
+      energy_valley_kwh,
+      max_demand_kw,
       updated_at
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,NOW()
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
+      $26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,NOW()
     )
     ON CONFLICT (sn) DO UPDATE SET
       product_key = EXCLUDED.product_key,
@@ -358,6 +426,21 @@ const upsertDeviceLatestStateForDataUpdate = async (
       channel = EXCLUDED.channel,
       mac_address = EXCLUDED.mac_address,
       raw_id = EXCLUDED.raw_id,
+      voltage_b_v = EXCLUDED.voltage_b_v,
+      voltage_c_v = EXCLUDED.voltage_c_v,
+      current_b_a = EXCLUDED.current_b_a,
+      current_c_a = EXCLUDED.current_c_a,
+      active_power_a_kw = EXCLUDED.active_power_a_kw,
+      active_power_b_kw = EXCLUDED.active_power_b_kw,
+      active_power_c_kw = EXCLUDED.active_power_c_kw,
+      power_factor_a = EXCLUDED.power_factor_a,
+      power_factor_b = EXCLUDED.power_factor_b,
+      power_factor_c = EXCLUDED.power_factor_c,
+      energy_sharp_kwh = EXCLUDED.energy_sharp_kwh,
+      energy_peak_kwh = EXCLUDED.energy_peak_kwh,
+      energy_flat_kwh = EXCLUDED.energy_flat_kwh,
+      energy_valley_kwh = EXCLUDED.energy_valley_kwh,
+      max_demand_kw = EXCLUDED.max_demand_kw,
       updated_at = NOW()`,
     [
       params.sn,
@@ -384,7 +467,22 @@ const upsertDeviceLatestStateForDataUpdate = async (
       params.mapped.rssi,
       params.mapped.channel,
       params.mapped.macAddress,
-      params.rawId
+      params.rawId,
+      params.mapped.voltageBV,
+      params.mapped.voltageCV,
+      params.mapped.currentBA,
+      params.mapped.currentCA,
+      params.mapped.activePowerAKw,
+      params.mapped.activePowerBKw,
+      params.mapped.activePowerCKw,
+      params.mapped.powerFactorA,
+      params.mapped.powerFactorB,
+      params.mapped.powerFactorC,
+      params.mapped.energySharpKwh,
+      params.mapped.energyPeakKwh,
+      params.mapped.energyFlatKwh,
+      params.mapped.energyValleyKwh,
+      params.mapped.maxDemandKw
     ]
   );
 };
@@ -568,9 +666,25 @@ export const persistTelemetryFoundation = async (
       rssi,
       channel,
       mac_address,
-      raw_id
+      raw_id,
+      voltage_b_v,
+      voltage_c_v,
+      current_b_a,
+      current_c_a,
+      active_power_a_kw,
+      active_power_b_kw,
+      active_power_c_kw,
+      power_factor_a,
+      power_factor_b,
+      power_factor_c,
+      energy_sharp_kwh,
+      energy_peak_kwh,
+      energy_flat_kwh,
+      energy_valley_kwh,
+      max_demand_kw
     ) VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+      $17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31
     )`,
     [
       sn,
@@ -588,7 +702,22 @@ export const persistTelemetryFoundation = async (
       sampleValues.rssi,
       sampleValues.channel,
       sampleValues.macAddress,
-      rawId
+      rawId,
+      sampleValues.voltageBV,
+      sampleValues.voltageCV,
+      sampleValues.currentBA,
+      sampleValues.currentCA,
+      sampleValues.activePowerAKw,
+      sampleValues.activePowerBKw,
+      sampleValues.activePowerCKw,
+      sampleValues.powerFactorA,
+      sampleValues.powerFactorB,
+      sampleValues.powerFactorC,
+      sampleValues.energySharpKwh,
+      sampleValues.energyPeakKwh,
+      sampleValues.energyFlatKwh,
+      sampleValues.energyValleyKwh,
+      sampleValues.maxDemandKw
     ]
   );
 

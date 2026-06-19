@@ -229,6 +229,40 @@ export const listDevicesRegistry = async (
 };
 
 /** Approve a quarantined device into the managed whitelist. */
+// Required metadata before a quarantined device can be approved/whitelisted.
+// A device must not be admitted to the fleet without an owner and core details.
+const APPROVAL_REQUIRED_FIELDS: { key: keyof DeviceRegistryRow; label: string }[] = [
+  { key: "customer_id", label: "Müşteri (kimin adına)" },
+  { key: "subscriber_no", label: "Abone No" },
+  { key: "property_type_id", label: "Mülk tipi" },
+  { key: "city", label: "Şehir" }
+];
+
+export interface ApprovalReadiness {
+  found: boolean;
+  quarantined: boolean;
+  missing: string[];
+}
+
+const isBlank = (value: unknown): boolean =>
+  value == null || (typeof value === "string" && value.trim() === "");
+
+export const checkDeviceApprovalReadiness = async (
+  pool: Pool,
+  sn: string
+): Promise<ApprovalReadiness> => {
+  const row = await getDeviceRegistry(pool, sn);
+  if (!row) return { found: false, quarantined: false, missing: [] };
+  const missing = APPROVAL_REQUIRED_FIELDS.filter((f) => isBlank(row[f.key])).map(
+    (f) => f.label
+  );
+  return {
+    found: true,
+    quarantined: row.registry_status === "quarantined",
+    missing
+  };
+};
+
 export const approveQuarantinedDevice = async (pool: Pool, sn: string): Promise<boolean> => {
   const res = await pool.query(
     `UPDATE devices SET
