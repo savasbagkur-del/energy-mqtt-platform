@@ -9,7 +9,7 @@
   const SETTINGS_KEY = "v4a.settings";
   const TOKEN_KEY = "apiToken"; // panel session JWT (shared key name w/ legacy pages)
   const USER_KEY = "v4a.user";
-  const defaultSettings = { refreshMs: 5000, onlineWindowSec: 300, theme: "dark", offlineAlarmMin: 15 };
+  const defaultSettings = { refreshMs: 5000, onlineWindowSec: 300, theme: "light", offlineAlarmMin: 15 };
 
   function loadUser() {
     try { const u = JSON.parse(localStorage.getItem(USER_KEY) || "null"); return u && u.username ? u : null; }
@@ -837,11 +837,11 @@
     const toMs = (p) => new Date(p.t).getTime();
     const powerCur = lineChart([
       { name: "Güç (kW)", color: "var(--brand)", axis: "l", area: true, points: pts.map((p) => ({ t: toMs(p), y: p.active_power_kw })) },
-      { name: "Akım (A)", color: "#f59e0b", axis: "r", points: pts.map((p) => ({ t: toMs(p), y: p.current_a })) }
+      { name: "Akım (A)", color: "var(--warn)", axis: "r", points: pts.map((p) => ({ t: toMs(p), y: p.current_a })) }
     ], { height: 210 });
     const volt = lineChart([
-      { name: "Gerilim (V)", color: "#38bdf8", axis: "l", area: true, points: pts.map((p) => ({ t: toMs(p), y: p.voltage_v })) },
-      { name: "PF", color: "#22c55e", axis: "r", points: pts.map((p) => ({ t: toMs(p), y: p.power_factor })) }
+      { name: "Gerilim (V)", color: "var(--info)", axis: "l", area: true, points: pts.map((p) => ({ t: toMs(p), y: p.voltage_v })) },
+      { name: "PF", color: "var(--on)", axis: "r", points: pts.map((p) => ({ t: toMs(p), y: p.power_factor })) }
     ], { height: 180 });
     area.innerHTML = `<div style="margin-bottom:6px;font-size:12px;color:var(--muted)">Güç & Akım</div>${powerCur}
       <div style="margin:14px 0 6px;font-size:12px;color:var(--muted)">Gerilim & Güç Faktörü</div>${volt}`;
