@@ -1365,6 +1365,12 @@ const toMetadataInput = (
   if (propertyTypeId === undefined && ptCode) {
     propertyTypeId = propertyTypeByCode.get(ptCode.toLowerCase());
   }
+  const telemetryModeRaw = str("telemetryMode") ?? str("telemetry_mode");
+  if (telemetryModeRaw !== undefined && telemetryModeRaw !== null) {
+    if (telemetryModeRaw !== "consumption" && telemetryModeRaw !== "analysis") {
+      return { error: "invalid_telemetry_mode" };
+    }
+  }
   return {
     sn,
     productKey: str("productKey") ?? str("product_key") ?? null,
@@ -1381,7 +1387,8 @@ const toMetadataInput = (
     region: str("region") ?? null,
     dealer: str("dealer") ?? null,
     installDate: str("installDate") ?? str("install_date") ?? null,
-    notes: str("notes") ?? null
+    notes: str("notes") ?? null,
+    telemetryMode: telemetryModeRaw ?? null
   };
 };
 

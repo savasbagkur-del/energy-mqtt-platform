@@ -1132,6 +1132,9 @@
     const editing = !!row;
     const cuOpts = `<option value="">— yok —</option>` + state.lookups.customers.map((c) => `<option value="${esc(c.id)}" ${row && row.customer_id == c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("");
     const ptOpts = `<option value="">— seçin —</option>` + state.lookups.propertyTypes.map((p) => `<option value="${esc(p.id)}" ${row && row.property_type_id == p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("");
+    const tmCur = (row && row.telemetry_mode) ? row.telemetry_mode : "consumption";
+    const tmOpts = [["consumption", "Tüketim izleme (voltaj · akım · enerji)"], ["analysis", "Enerji analiz (+ güç · güç faktörü)"]]
+      .map(([val, lbl]) => `<option value="${val}" ${tmCur === val ? "selected" : ""}>${lbl}</option>`).join("");
     const v = (k) => esc((row && row[k] != null) ? row[k] : "");
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal lg">
@@ -1143,6 +1146,7 @@
           <div class="field"><label>Abone / Sözleşme No</label><input id="rf_subscriber_no" value="${v("subscriber_no")}" /></div>
           <div class="field"><label>Müşteri</label><select id="rf_customer_id">${cuOpts}</select></div>
           <div class="field"><label>Mülk tipi</label><select id="rf_property_type_id">${ptOpts}</select></div>
+          <div class="field"><label>İzleme tipi</label><select id="rf_telemetry_mode">${tmOpts}</select></div>
           <div class="field"><label>Ürün anahtarı</label><input id="rf_product_key" value="${v("product_key")}" /></div>
           <div class="field"><label>Tarife</label><input id="rf_tariff" value="${v("tariff")}" /></div>
           <div class="field"><label>Bölge</label><input id="rf_region" value="${v("region")}" /></div>
@@ -1166,7 +1170,8 @@
       const bodyObj = {
         sn, label: t("rf_label"), subscriber_no: t("rf_subscriber_no"),
         customer_id: t("rf_customer_id"), property_type_id: num("rf_property_type_id"),
-        product_key: t("rf_product_key"), tariff: t("rf_tariff"), region: t("rf_region"), dealer: t("rf_dealer"),
+        product_key: t("rf_product_key"), telemetry_mode: t("rf_telemetry_mode"),
+        tariff: t("rf_tariff"), region: t("rf_region"), dealer: t("rf_dealer"),
         address_line: t("rf_address_line"), district: t("rf_district"), city: t("rf_city"),
         install_date: t("rf_install_date"), lat: num("rf_lat"), lng: num("rf_lng"), notes: t("rf_notes")
       };

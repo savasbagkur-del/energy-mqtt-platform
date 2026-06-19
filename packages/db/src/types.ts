@@ -129,6 +129,7 @@ export interface DeviceRow {
   softversion: string | null;
   network: unknown;
   model: string | null;
+  telemetry_mode: string | null;
   updated_at: string;
   registry_status: string;
   lifecycle_status: string;
@@ -178,6 +179,7 @@ export interface DeviceRegistryRow {
   dealer: string | null;
   install_date: string | null;
   notes: string | null;
+  telemetry_mode: string | null;
   registry_status: string;
   lifecycle_status: string;
   registered_at: string | null;

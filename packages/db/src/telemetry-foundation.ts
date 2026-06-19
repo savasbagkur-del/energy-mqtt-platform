@@ -119,50 +119,69 @@ interface TelemetryMappedValues {
 }
 
 /**
- * Per-model telemetry profile.
+ * Per-device telemetry mode (chosen at registration).
  *
- * ADL200 single-phase meters only retain voltage / current / energy for the
- * analysis time-series (telemetry_samples). Active/reactive power, power factor
- * and the secondary fields are dropped from the sample row. Power/reactive/PF
- * are also nulled in the live snapshot (device_latest_state), but control and
- * prepaid fields (switch_state, balance, owe_money, alarms, rssi) are kept so
- * relay control and billing keep working.
+ *  'consumption' (Tuketim izleme): the analysis time-series keeps only voltage /
+ *    current / total energy. Power, reactive power, power factor and the
+ *    secondary fields are dropped from the sample. Power/reactive/PF are also
+ *    nulled in the live snapshot.
+ *  'analysis' (Enerji analiz): consumption set + active power + power factor.
+ *    Reactive power and the secondary fields are dropped from the sample.
+ *  null (legacy/unset): store every mapped metric.
  *
- * Any other (or unknown/null) model uses the default profile: store everything.
+ * Control/prepaid fields (switch_state, balance, owe_money, alarms, rssi) are
+ * always preserved in device_latest_state so relay control and prepaid billing
+ * keep working regardless of mode.
  */
+type TelemetryMode = "consumption" | "analysis" | null;
+
 const applySampleProfile = (
   mapped: TelemetryMappedValues,
-  model: string | null
+  mode: TelemetryMode
 ): TelemetryMappedValues => {
-  if (model !== "ADL200") {
-    return mapped;
+  if (mode === "consumption") {
+    return {
+      ...mapped,
+      activePowerKw: null,
+      reactivePowerKvar: null,
+      powerFactor: null,
+      balance: null,
+      switchState: null,
+      rssi: null,
+      channel: null,
+      macAddress: null
+    };
   }
-  return {
-    ...mapped,
-    activePowerKw: null,
-    reactivePowerKvar: null,
-    powerFactor: null,
-    balance: null,
-    switchState: null,
-    rssi: null,
-    channel: null,
-    macAddress: null
-  };
+  if (mode === "analysis") {
+    return {
+      ...mapped,
+      reactivePowerKvar: null,
+      balance: null,
+      switchState: null,
+      rssi: null,
+      channel: null,
+      macAddress: null
+    };
+  }
+  return mapped;
 };
 
 const applyLatestStateProfile = (
   mapped: TelemetryMappedValues,
-  model: string | null
+  mode: TelemetryMode
 ): TelemetryMappedValues => {
-  if (model !== "ADL200") {
-    return mapped;
+  if (mode === "consumption") {
+    return {
+      ...mapped,
+      activePowerKw: null,
+      reactivePowerKvar: null,
+      powerFactor: null
+    };
   }
-  return {
-    ...mapped,
-    activePowerKw: null,
-    reactivePowerKvar: null,
-    powerFactor: null
-  };
+  if (mode === "analysis") {
+    return { ...mapped, reactivePowerKvar: null };
+  }
+  return mapped;
 };
 
 const pickReportedNode = (
@@ -537,14 +556,16 @@ export const persistTelemetryFoundation = async (
   const mapped = mapTelemetryValues(payloadJson, sn, input.deriveSwitchFromAdfState !== false);
   const observedAt = deviceSampleAt ?? deviceSentAt ?? receivedAt;
 
-  // Resolve the device hardware model so we can apply its telemetry profile.
-  // (PK lookup; returns null for unseen SNs => default profile.)
-  const modelResult = await pool.query<{ model: string | null }>(
-    `SELECT model FROM devices WHERE sn = $1`,
+  // Resolve the device telemetry mode so we can apply its profile.
+  // (PK lookup; returns null for unseen SNs => legacy "store everything".)
+  const modeResult = await pool.query<{ telemetry_mode: string | null }>(
+    `SELECT telemetry_mode FROM devices WHERE sn = $1`,
     [sn]
   );
-  const deviceModel = modelResult.rows[0]?.model ?? null;
-  const sampleValues = applySampleProfile(mapped, deviceModel);
+  const rawMode = modeResult.rows[0]?.telemetry_mode ?? null;
+  const telemetryMode: TelemetryMode =
+    rawMode === "consumption" || rawMode === "analysis" ? rawMode : null;
+  const sampleValues = applySampleProfile(mapped, telemetryMode);
 
   await pool.query(
     `INSERT INTO telemetry_samples (
@@ -595,7 +616,7 @@ export const persistTelemetryFoundation = async (
       method,
       msgid: normalized.msgid,
       topicRaw: normalized.topic.raw,
-      mapped: applyLatestStateProfile(mapped, deviceModel),
+      mapped: applyLatestStateProfile(mapped, telemetryMode),
       rawId,
       lastSeenAt
     });
