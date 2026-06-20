@@ -55,6 +55,7 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const view = $("#view");
+  let routeAnimTimer = 0;
 
   const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
@@ -498,17 +499,21 @@
     const projCard = (p) => {
       const name = p.projectName && String(p.projectName).trim() ? p.projectName : "Atanmamış";
       const alarmCls = p.openAlarms ? " has-alarm" : "";
+      const initials = name.slice(0, 2).toUpperCase();
       return `<div class="proj-card${alarmCls}">
         <div class="proj-head">
+          <span class="proj-badge">${esc(initials)}</span>
           <span class="proj-name" title="${esc(name)}">${esc(name)}</span>
-          ${p.openAlarms ? `<span class="pill bad"><span class="pdot"></span>${nf(p.openAlarms)} alarm</span>` : `<span class="pill on"><span class="pdot"></span>stabil</span>`}
+          ${p.openAlarms ? `<span class="pill bad"><span class="pdot"></span>${nf(p.openAlarms)}</span>` : `<span class="pill on"><span class="pdot"></span>stabil</span>`}
         </div>
         <div class="proj-stats">
           <div class="ps"><div class="ps-v">${nf(p.total)}</div><div class="ps-l">Sayaç</div></div>
           <div class="ps"><div class="ps-v on">${nf(p.online)}</div><div class="ps-l">Aktif</div></div>
           <div class="ps"><div class="ps-v ${p.offline ? "off" : ""}">${nf(p.offline)}</div><div class="ps-l">Çevrim Dışı</div></div>
-          <div class="ps" style="grid-column: span 2"><div class="ps-v">${nf(p.totalEnergyKwh, 1)}<small style="font-size:12px;color:var(--muted);font-weight:700"> kWh</small></div><div class="ps-l">Toplam Enerji</div></div>
-          <div class="ps"><div class="ps-v ${p.openAlarms ? "bad" : ""}">${nf(p.openAlarms)}</div><div class="ps-l">Alarm</div></div>
+        </div>
+        <div class="proj-foot">
+          <div class="pf"><span class="pf-l">Toplam Enerji</span><span class="pf-v">${nf(p.totalEnergyKwh, 1)}<small>kWh</small></span></div>
+          <div class="pf right"><span class="pf-l">Alarm</span><span class="pf-v ${p.openAlarms ? "bad" : ""}">${nf(p.openAlarms)}</span></div>
         </div>
       </div>`;
     };
@@ -1495,6 +1500,10 @@
     // Leaving the device that has a fast-polling command in flight → drop back to idle cadence.
     if (state.activeCmd && !(r.name === "device" && r.param === state.activeCmd.sn)) state.activeCmd = null;
     setNavActive(r.name);
+    // play the enter transition only on real navigation (not silent auto-refresh)
+    view.classList.add("route-enter");
+    clearTimeout(routeAnimTimer);
+    routeAnimTimer = setTimeout(() => view.classList.remove("route-enter"), 420);
     try {
       switch (r.name) {
         case "overview": await renderOverview(); break;
