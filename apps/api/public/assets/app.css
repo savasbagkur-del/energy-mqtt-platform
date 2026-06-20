@@ -569,7 +569,7 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .donut-legend .dl b { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 /* device-mix donut (inner status + outer model) */
-.mix-wrap { display: flex; align-items: center; gap: 34px; flex-wrap: wrap; }
+.mix-wrap { display: flex; align-items: center; gap: 40px; flex-wrap: wrap; }
 .mix-donut-wrap { flex: none; width: 230px; height: 230px; display: grid; place-items: center; }
 /* keep the drawing inside its box so the hover highlight never bleeds into other sections */
 .mix-donut { display: block; overflow: hidden; }
@@ -577,13 +577,14 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .donut-seg.dim { opacity: .22; }
 .donut-seg.hot { filter: brightness(1.08); }
 .donut-cv, .donut-cl { transition: fill .18s ease; pointer-events: none; }
-.mix-legends { display: flex; gap: 16px 44px; flex-wrap: wrap; flex: 1; min-width: 220px; }
-.mix-col { display: flex; flex-direction: column; gap: 11px; min-width: 168px; }
-.mix-col .dl { display: flex; align-items: center; gap: 10px; font-size: 15px; }
-.mix-col .dl i { width: 12px; height: 12px; border-radius: 4px; flex: none; }
-.mix-col .dl b { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 15px; }
-.dl-group { font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
-.dl-pct { color: var(--muted); font-weight: 600; font-size: 12.5px; margin-left: 7px; }
+/* legend lives clearly outside the chart and spreads to fill the panel width */
+.mix-legends { display: flex; gap: 24px 56px; flex-wrap: wrap; flex: 1; min-width: 240px; padding-left: 34px; border-left: 1px solid var(--line); align-self: stretch; align-items: center; }
+.mix-col { display: flex; flex-direction: column; gap: 14px; flex: 1 1 210px; min-width: 200px; }
+.mix-col .dl { display: flex; align-items: center; gap: 11px; font-size: 16.5px; }
+.mix-col .dl i { width: 13px; height: 13px; border-radius: 4px; flex: none; }
+.mix-col .dl b { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 16.5px; font-weight: 800; }
+.dl-group { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
+.dl-pct { color: var(--muted); font-weight: 600; font-size: 13px; margin-left: 8px; }
 
 /* ============================================================ Auth: login + user chip */
 .login-screen { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 22px;
@@ -628,7 +629,7 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .view { padding: 18px clamp(12px, 3vw, 22px) 96px; }
   .mix-wrap { justify-content: center; }
-  .mix-legends { justify-content: center; }
+  .mix-legends { justify-content: center; padding-left: 0; border-left: 0; }
   .mix-donut-wrap { width: 200px; height: 200px; }
 }
 @media (max-width: 640px) {
