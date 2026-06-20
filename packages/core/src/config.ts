@@ -142,6 +142,12 @@ export interface AppConfig {
   deviceOnlineTtlSec: number;
   /** Master switch for the desired-state reconciler loop. */
   reconcileEnabled: boolean;
+  /** While the device is online, seconds between successive reconcile command attempts. */
+  reconcileOnlineRetrySec: number;
+  /** After this many failed attempts while the device is ONLINE, raise an "not actuating" alarm. */
+  reconcileOnlineFailAlarmAttempts: number;
+  /** Emit an alarm when a device stays OFFLINE (default off: offline is treated as "expected"). */
+  reconcileOfflineAlarmEnabled: boolean;
   /**
    * EMQX shared-subscription group. When set, the worker subscribes via `$share/<group>/<topic>`
    * so multiple worker instances load-balance inbound traffic (horizontal scale). Empty = exclusive
@@ -233,6 +239,9 @@ export const appConfig: AppConfig = Object.freeze({
   reconcileIntervalMs: readPositiveInt(process.env.RECONCILE_INTERVAL_MS, 5000),
   deviceOnlineTtlSec: readPositiveInt(process.env.DEVICE_ONLINE_TTL_SEC, 600),
   reconcileEnabled: readBooleanWithDefault(process.env.RECONCILE_ENABLED, true),
+  reconcileOnlineRetrySec: readPositiveInt(process.env.RECONCILE_ONLINE_RETRY_SEC, 7),
+  reconcileOnlineFailAlarmAttempts: readPositiveInt(process.env.RECONCILE_ONLINE_FAIL_ALARM_ATTEMPTS, 30),
+  reconcileOfflineAlarmEnabled: readBooleanWithDefault(process.env.RECONCILE_OFFLINE_ALARM_ENABLED, false),
   mqttSharedGroup: readString(process.env.MQTT_SHARED_GROUP),
   pgPoolMax: readPositiveInt(process.env.PG_POOL_MAX, 20),
   mqttInboundConcurrency: readPositiveInt(process.env.MQTT_INBOUND_CONCURRENCY, 16),

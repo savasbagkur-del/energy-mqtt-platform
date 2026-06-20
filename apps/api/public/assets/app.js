@@ -691,13 +691,23 @@
     const txt = sw === "on" ? "AÇIK" : sw === "off" ? "KAPALI" : "BİLİNMİYOR";
     return `<div class="relay-badge ${cls}"><div class="rb-state">${txt}</div><div class="rb-sub">röle (decode)</div></div>`;
   }
+  // Mirrors RECONCILE_ONLINE_FAIL_ALARM_ATTEMPTS (worker default): once an online device has been
+  // re-driven this many times without confirming, the backend raises a fault alarm. Surface it here.
+  const ONLINE_FAULT_ATTEMPTS = 30;
   function desiredHtml(cv) {
     const d = cv && cv.desired;
-    return d ? `<div class="kv" style="margin-top:14px">
-        <dt>İrade durumu</dt><dd><span class="pill ${cmdClass(d.reconcile_status)}">${esc(d.reconcile_status)}</span></dd>
+    if (!d) return `<div class="muted" style="margin-top:14px">Aktif irade yok — röle bildirilen durumda.</div>`;
+    const pending = cmdClass(d.reconcile_status) === "pend";
+    const online = !!(cv && cv.onlineFresh);
+    const fault = pending && online && Number(d.attempt_count) >= ONLINE_FAULT_ATTEMPTS;
+    const faultBanner = fault
+      ? `<div class="fault-banner">⚠ ARIZA: Cihaz çevrimiçi görünüyor ama ${nf(d.attempt_count)} denemede röle hedeflenen duruma geçmedi. Komut tutuluyor, denemeye devam ediliyor.</div>`
+      : "";
+    return `${faultBanner}<div class="kv" style="margin-top:14px">
+        <dt>İrade durumu</dt><dd><span class="pill ${fault ? "bad" : cmdClass(d.reconcile_status)}">${fault ? "arıza" : esc(d.reconcile_status)}</span></dd>
         <dt>Hedef</dt><dd class="mono">${esc(JSON.stringify(d.desired_value))}</dd>
         <dt>Deneme</dt><dd>${nf(d.attempt_count)}</dd>
-      </div>` : `<div class="muted" style="margin-top:14px">Aktif irade yok — röle bildirilen durumda.</div>`;
+      </div>`;
   }
   function gaugesHtml(m) {
     return gauge({ value: m.voltage_v, min: 180, max: 260, unit: "V", label: "Gerilim", digits: 0, zones: [{ to: 0.18, color: "var(--bad)" }, { to: 0.32, color: "var(--warn)" }, { to: 0.85, color: "var(--on)" }, { to: 1, color: "var(--warn)" }] })

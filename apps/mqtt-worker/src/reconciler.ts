@@ -20,6 +20,16 @@ export interface ReconcilerConfig {
   defaultMaxBackoffSec: number;
   defaultUnreachableAlarmSec: number;
   jitterPct: number;
+  /**
+   * While the device is ONLINE, the (near-constant) gap between successive reconcile attempts.
+   * Note: a sleeping meter only receives when it wakes (wake-triggered delivery handles that);
+   * this is the timer-fallback cadence + how fast we re-issue once a command goes terminal.
+   */
+  onlineRetryIntervalSec: number;
+  /** After this many attempts while ONLINE without reconciling, raise the "not actuating" alarm. */
+  onlineFailAlarmAttempts: number;
+  /** When false, staying offline raises no alarm (offline is "expected"); desired state is kept. */
+  offlineAlarmEnabled: boolean;
 }
 
 export interface ReconcilerDeps {
@@ -30,6 +40,8 @@ export interface ReconcilerDeps {
   config: ReconcilerConfig;
   /** Optional hook fired when a desired state has been unreachable past its alarm threshold. */
   onUnreachableAlarm?: (info: { sn: string; desired: number; unreachableForSec: number }) => void;
+  /** Fired once when an ONLINE device has failed to actuate after onlineFailAlarmAttempts tries. */
+  onOnlineFailAlarm?: (info: { sn: string; desired: number; attempts: number }) => void;
 }
 
 export type ReconcileAction = "reconciled" | "unreachable" | "wait_in_flight" | "issue_command";
@@ -186,7 +198,10 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
         const unreachableForSec = row.unreachable_since
           ? (Date.now() - new Date(row.unreachable_since).getTime()) / 1000
           : 0;
-        if (unreachableForSec >= alarmSec && row.last_command_id) {
+        // Offline is treated as "expected": the irade is kept and retried on wake, but we only
+        // emit an offline alarm when explicitly enabled. The important fault — online but not
+        // actuating — is handled in the issue_command branch below.
+        if (config.offlineAlarmEnabled && unreachableForSec >= alarmSec && row.last_command_id) {
           await addCommandEvent(pool, row.last_command_id, "desired_state_unreachable_alarm", {
             sn: row.sn,
             desired,
@@ -205,7 +220,9 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
       }
 
       if (action === "wait_in_flight") {
-        const waitMs = computeBackoffMs(1, minSec, maxSec, config.jitterPct);
+        // Online + a command already in flight: re-check at the fast online cadence (single-flight
+        // prevents issuing a duplicate command; this just keeps us responsive once it terminates).
+        const waitMs = Math.max(1, config.onlineRetryIntervalSec) * 1000;
         await markDesiredInFlight(pool, row.id, {
           commandId: inFlight?.id ?? null,
           incrementAttempt: false,
@@ -220,27 +237,47 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
         continue;
       }
 
-      // issue_command
+      // issue_command (device is online + state is wrong + nothing in flight)
       const command = await createReconcileSwitchCommand(pool, row, desired);
-      const backoffMs = computeBackoffMs(row.attempt_count + 1, minSec, maxSec, config.jitterPct);
+      const nextAttempt = row.attempt_count + 1;
+      // Online retries run at a near-constant fast cadence (not 30→300s backoff): the device is
+      // reachable, so we want to re-drive promptly each time a command goes terminal.
+      const nextEvalMs = Math.max(1, config.onlineRetryIntervalSec) * 1000;
       await markDesiredInFlight(pool, row.id, {
         commandId: command.id,
         incrementAttempt: true,
-        nextEvalAt: new Date(Date.now() + backoffMs)
+        nextEvalAt: new Date(Date.now() + nextEvalMs)
       });
       await addCommandEvent(pool, command.id, "reconcile_command_issued", {
         sn: row.sn,
         desired,
         desiredStateId: row.id,
-        attempt: row.attempt_count + 1
+        attempt: nextAttempt
       });
       log.info("reconcile_command_issued", {
         id: row.id,
         sn: row.sn,
         desired,
         commandId: command.id,
-        attempt: row.attempt_count + 1
+        attempt: nextAttempt
       });
+
+      // Online but still not actuating after the configured number of attempts → fault alarm.
+      // Fires exactly once (on the threshold attempt); the irade is NOT dropped — we keep trying.
+      if (nextAttempt === config.onlineFailAlarmAttempts) {
+        await addCommandEvent(pool, command.id, "desired_state_online_not_actuating_alarm", {
+          sn: row.sn,
+          desired,
+          attempts: nextAttempt
+        });
+        deps.onOnlineFailAlarm?.({ sn: row.sn, desired, attempts: nextAttempt });
+        log.warn("reconcile_online_not_actuating_alarm", {
+          id: row.id,
+          sn: row.sn,
+          desired,
+          attempts: nextAttempt
+        });
+      }
     } catch (error) {
       log.error("reconcile_row_failed", {
         id: row.id,

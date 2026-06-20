@@ -338,6 +338,13 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 /* ============================================================ form hint */
 .hint { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.4; }
 
+/* ============================================================ fault banner */
+.fault-banner {
+  margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 700;
+  color: var(--bad-text); background: color-mix(in srgb, var(--bad) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bad) 34%, transparent); line-height: 1.4;
+}
+
 /* ============================================================ model phase tag */
 .phase-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: .03em; vertical-align: middle; border: 1px solid var(--line); }
 .phase-tag.ph1 { color: var(--muted); background: var(--surface-2, rgba(0,0,0,.04)); }

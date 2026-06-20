@@ -2936,7 +2936,10 @@ const reconcilerConfig = {
   defaultMinBackoffSec: 30,
   defaultMaxBackoffSec: 300,
   defaultUnreachableAlarmSec: 1800,
-  jitterPct: 20
+  jitterPct: 20,
+  onlineRetryIntervalSec: appConfig.reconcileOnlineRetrySec,
+  onlineFailAlarmAttempts: appConfig.reconcileOnlineFailAlarmAttempts,
+  offlineAlarmEnabled: appConfig.reconcileOfflineAlarmEnabled
 };
 setInterval(() => {
   if (!appConfig.reconcileEnabled || reconcileLoopActive) {
@@ -2951,10 +2954,19 @@ setInterval(() => {
     onUnreachableAlarm: ({ sn, desired, unreachableForSec }) => {
       alerter.notify({
         type: "desired_state_unreachable_alarm",
-        severity: "critical",
+        severity: "warning",
         sn,
         message: `Desired switch=${desired} for ${sn} unreachable for ${unreachableForSec}s`,
         fields: { desired, unreachableForSec }
+      });
+    },
+    onOnlineFailAlarm: ({ sn, desired, attempts }) => {
+      alerter.notify({
+        type: "desired_state_online_not_actuating_alarm",
+        severity: "critical",
+        sn,
+        message: `Device ${sn} ONLINE but did not actuate switch=${desired} after ${attempts} attempts`,
+        fields: { desired, attempts }
       });
     }
   })
