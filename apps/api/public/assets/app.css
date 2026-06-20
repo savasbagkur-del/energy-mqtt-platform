@@ -207,9 +207,27 @@ body.dock-open .view { padding-bottom: 116px; }
 .topbar {
   position: sticky; top: 0; z-index: 30; height: var(--topbar-h);
   display: flex; align-items: center; gap: 12px; padding: 0 20px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  /* Strong, on-palette bar that clearly separates from the lighter content below. */
+  background: linear-gradient(90deg, var(--color-primary-hover) 0%, var(--color-primary) 42%, var(--color-secondary) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, .10);
+  box-shadow: 0 6px 20px rgba(40, 50, 60, .18);
+  color: #fff;
 }
+/* Light foreground + glassy controls so everything stays legible on the colored bar. */
+.topbar .topbar-brand strong { color: #fff; }
+.topbar .topbar-brand .brand-mark { background: rgba(255, 255, 255, .18); color: #fff; box-shadow: none; }
+.topbar .icon-btn { background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .22); color: #fff; }
+.topbar .icon-btn:hover { background: rgba(255, 255, 255, .22); border-color: rgba(255, 255, 255, .38); color: #fff; }
+.topbar .menu-toggle.active { background: #fff; color: var(--color-primary); border-color: transparent; }
+.topbar .searchbox { background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .22); }
+.topbar .searchbox .ic { color: rgba(255, 255, 255, .8); }
+.topbar .searchbox input { color: #fff; }
+.topbar .searchbox input::placeholder { color: rgba(255, 255, 255, .72); }
+.topbar .refresh-state { color: rgba(255, 255, 255, .85); }
+.topbar .user-chip { border-left-color: rgba(255, 255, 255, .22); }
+.topbar .user-meta #userName { color: #fff; }
+.topbar .user-role { color: rgba(255, 255, 255, .72); }
+.topbar .user-ava { background: #fff; color: var(--color-primary); }
 .menu-toggle { display: grid; font-size: 18px; }
 .menu-toggle.active { background: var(--brand-grad); color: var(--brand-ink); border-color: transparent; }
 .topbar-brand { display: flex; align-items: center; gap: 10px; padding-right: 4px; }
