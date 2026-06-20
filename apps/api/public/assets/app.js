@@ -492,8 +492,19 @@
   }
 
   // ================================================================ OVERVIEW
+  function overviewSkeleton() {
+    const panel = (h) => `<div class="panel"><div class="panel-head"><div class="skel" style="height:13px;width:140px"></div></div><div class="panel-pad">${h}</div></div>`;
+    const lines = (n) => Array.from({ length: n }).map(() => `<div class="skel" style="height:14px;margin:10px 0;width:${60 + Math.round(Math.random() * 35)}%"></div>`).join("");
+    return `
+      <div class="page-head"><div><div class="skel" style="height:24px;width:200px"></div><div class="skel" style="height:12px;width:300px;margin-top:8px"></div></div></div>
+      <div class="skel-grid">
+        ${panel(`<div style="display:flex;gap:20px;align-items:center"><div class="skel" style="width:140px;height:140px;border-radius:50%"></div><div style="flex:1">${lines(5)}</div></div>`)}
+        ${panel(lines(4))}
+      </div>`;
+  }
+
   async function renderOverview(silent) {
-    if (!silent) view.innerHTML = `<div class="loading">Filo özeti yükleniyor…</div>`;
+    if (!silent) view.innerHTML = overviewSkeleton();
     let ov, offline, alarms, owing, cmdAlarms, projects, models;
     try {
       [ov, offline, alarms, owing, cmdAlarms, projects, models] = await Promise.all([
@@ -525,7 +536,8 @@
       const name = p.projectName && String(p.projectName).trim() ? p.projectName : "Atanmamış";
       const alarmCls = p.openAlarms ? " has-alarm" : "";
       const initials = name.slice(0, 2).toUpperCase();
-      return `<div class="proj-card${alarmCls}">
+      const projKey = (p.projectName && String(p.projectName).trim()) ? p.projectName : "__none__";
+      return `<div class="proj-card clickable${alarmCls}" data-project="${esc(projKey)}" data-project-label="${esc(name)}" title="${esc(name)} cihazlarını gör">
         <div class="proj-head">
           <span class="proj-badge">${esc(initials)}</span>
           <span class="proj-name" title="${esc(name)}">${esc(name)}</span>
@@ -622,11 +634,17 @@
 
     $$("[data-sn]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`)));
     $$("[data-go]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/${el.dataset.go}`)));
+    $$("[data-project]", view).forEach((el) => el.addEventListener("click", () => {
+      devicesState.project = el.dataset.project;
+      devicesState.projectLabel = el.dataset.projectLabel || el.dataset.project;
+      devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
+      navigate("#/devices");
+    }));
     state.refresher = renderOverview;
   }
 
   // ================================================================ DEVICES TABLE
-  const devicesState = { q: "", status: "", online: "", page: 0, pageSize: 50, total: 0 };
+  const devicesState = { q: "", status: "", online: "", project: "", projectLabel: "", page: 0, pageSize: 50, total: 0 };
 
   async function renderDevices(silent) {
     if (!silent) {
@@ -646,6 +664,7 @@
           <div class="seg" id="onlineSeg">
             <button data-v="" class="active">Hepsi</button><button data-v="true">Çevrimiçi</button><button data-v="false">Çevrimdışı</button>
           </div>
+          ${devicesState.project ? `<button class="chip-filter" id="clearProject" title="Proje filtresini kaldır">Proje: <b>${esc(devicesState.projectLabel || devicesState.project)}</b> <span class="x">✕</span></button>` : ""}
           <div class="spacer"></div>
           <input id="devSearch" placeholder="SN / etiket / müşteri / şehir ara…" style="width:280px" value="${esc(devicesState.q)}" />
         </div>
@@ -664,6 +683,8 @@
       $("#devNew").addEventListener("click", () => openRegisterModal(null));
       $("#devImport").addEventListener("click", openImportModal);
       $("#devExport").addEventListener("click", exportDevicesCsv);
+      const clrProj = $("#clearProject");
+      if (clrProj) clrProj.addEventListener("click", () => { devicesState.project = ""; devicesState.projectLabel = ""; devicesState.page = 0; renderDevices(); });
     }
     await loadDevices(silent);
     state.refresher = (s) => loadDevices(true);
@@ -683,6 +704,7 @@
     if (devicesState.q) p.set("q", devicesState.q);
     if (devicesState.status) p.set("status", devicesState.status);
     if (devicesState.online) p.set("online", devicesState.online);
+    if (devicesState.project) p.set("project", devicesState.project);
     p.set("window", state.settings.onlineWindowSec);
     p.set("limit", devicesState.pageSize);
     p.set("offset", devicesState.page * devicesState.pageSize);

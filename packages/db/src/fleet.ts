@@ -208,6 +208,8 @@ export interface ListFleetDevicesFilter {
   alarm?: boolean | null;
   /** Only devices with an outstanding balance (owe_money > 0). */
   owing?: boolean | null;
+  /** Filter by project_name. Use "__none__" for devices with no project assigned. */
+  project?: string | null;
   onlineWindowSec?: number;
   limit?: number;
   offset?: number;
@@ -280,6 +282,14 @@ export const listFleetDevices = async (
   }
   if (filter.owing === true) {
     where.push(`COALESCE(ls.owe_money, 0) > 0`);
+  }
+  if (filter.project) {
+    if (filter.project === "__none__") {
+      where.push(`(d.project_name IS NULL OR d.project_name = '')`);
+    } else {
+      params.push(filter.project);
+      where.push(`d.project_name = $${params.length}`);
+    }
   }
 
   const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";

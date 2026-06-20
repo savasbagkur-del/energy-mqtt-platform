@@ -1727,6 +1727,7 @@ app.get("/fleet/devices", async (req, res) => {
     };
     if (req.query.alarm === "true") filter.alarm = true;
     if (req.query.owing === "true") filter.owing = true;
+    if (typeof req.query.project === "string" && req.query.project) filter.project = req.query.project;
     if (typeof req.query.window === "string") filter.onlineWindowSec = Number(req.query.window);
     if (typeof req.query.limit === "string") filter.limit = Number(req.query.limit);
     if (typeof req.query.offset === "string") filter.offset = Number(req.query.offset);
