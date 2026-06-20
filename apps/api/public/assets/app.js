@@ -883,6 +883,7 @@
             <div class="panel-pad">
               <dl class="kv">
                 <dt>Müşteri</dt><dd>${esc(reg.customer_name || "—")}</dd>
+                <dt>Proje</dt><dd>${esc(reg.project_name || "—")}</dd>
                 <dt>Abone No</dt><dd>${esc(reg.subscriber_no || "—")}</dd>
                 <dt>Mülk tipi</dt><dd>${esc(reg.property_type_label || "—")}</dd>
                 <dt>Adres</dt><dd>${esc([reg.address_line, reg.district, reg.city].filter(Boolean).join(", ") || "—")}</dd>
@@ -1306,6 +1307,7 @@
         <div class="form-grid">
           <div class="field"><label>SN *</label><input id="rf_sn" value="${v("sn")}" ${editing ? "disabled" : ""} /></div>
           <div class="field"><label>Etiket / Ad</label><input id="rf_label" value="${v("label")}" /></div>
+          <div class="field"><label>Proje adı</label><input id="rf_project_name" value="${v("project_name")}" placeholder="örn. SavasEvi" /></div>
           <div class="field"><label>Abone / Sözleşme No *</label><input id="rf_subscriber_no" value="${v("subscriber_no")}" /></div>
           <div class="field"><label>Müşteri (kimin adına) *</label><select id="rf_customer_id">${cuOpts}</select></div>
           <div class="field"><label>Mülk tipi *</label><select id="rf_property_type_id">${ptOpts}</select></div>
@@ -1331,7 +1333,7 @@
       const sn = ($("#rf_sn").value || "").trim();
       if (!sn) { toast("SN gerekli", "", "warn"); return; }
       const bodyObj = {
-        sn, label: t("rf_label"), subscriber_no: t("rf_subscriber_no"),
+        sn, label: t("rf_label"), project_name: t("rf_project_name"), subscriber_no: t("rf_subscriber_no"),
         customer_id: t("rf_customer_id"), property_type_id: num("rf_property_type_id"),
         product_key: t("rf_product_key"), telemetry_mode: t("rf_telemetry_mode"),
         tariff: t("rf_tariff"), region: t("rf_region"), dealer: t("rf_dealer"),
@@ -1350,7 +1352,7 @@
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal lg">
         <h3>CSV içe aktarma</h3>
-        <p class="muted">Başlık satırı zorunlu. Kolonlar: <code>sn</code> (zorunlu), <code>label</code>, <code>subscriber_no</code>, <code>property_type_code</code> (ev/daire/yurt/dukkan/ofis/fabrika/diger), <code>customer_id</code>, <code>address_line</code>, <code>district</code>, <code>city</code>, <code>tariff</code>, <code>region</code>, <code>dealer</code>, <code>install_date</code>, <code>notes</code>.</p>
+        <p class="muted">Başlık satırı zorunlu. Kolonlar: <code>sn</code> (zorunlu), <code>label</code>, <code>project_name</code>, <code>subscriber_no</code>, <code>property_type_code</code> (ev/daire/yurt/dukkan/ofis/fabrika/diger), <code>customer_id</code>, <code>address_line</code>, <code>district</code>, <code>city</code>, <code>tariff</code>, <code>region</code>, <code>dealer</code>, <code>install_date</code>, <code>notes</code>.</p>
         <textarea id="imText" rows="8" style="width:100%" placeholder="sn,label,subscriber_no,property_type_code&#10;24042809890002,Daire 3,ABN-1001,daire"></textarea>
         <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
           <input id="imFile" type="file" accept=".csv,text/csv" />

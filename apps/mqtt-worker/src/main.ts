@@ -47,6 +47,7 @@ import {
   normalizeIncomingMessage
 } from "@communication/mqtt";
 import mqtt, { type IClientOptions } from "mqtt";
+import { buildMeterName } from "./meter-name.js";
 import {
   correlateOperateAckWithCommand,
   isOperateAckResAccepted,
@@ -459,12 +460,17 @@ const getExpectedSwitchFromRequest = (command: CommandRow): number | null => {
   return null;
 };
 
-const METER_NAME_DOC = "ADL200-NK-FWF";
-
 const unixSecondsNow = (): number => Math.floor(Date.now() / 1000);
 
-/** Device-doc outbound operate payload (indicate/server); wire JSON uses nested `payload`. */
-const buildOutboundCommandPayload = (command: CommandRow): Record<string, unknown> => {
+/**
+ * Device-doc outbound operate payload (indicate/server); wire JSON uses nested `payload`.
+ * `meterName` is built per-device as "<project>-<model>-<sn>" by the caller and used for both
+ * open (force_switch_1) and close (force_switch_0). Refresh does not use it.
+ */
+const buildOutboundCommandPayload = (
+  command: CommandRow,
+  meterName: string
+): Record<string, unknown> => {
   const sn = command.sn;
   const ts = unixSecondsNow();
   const base = {
@@ -490,7 +496,7 @@ const buildOutboundCommandPayload = (command: CommandRow): Record<string, unknow
     payload: {
       addr: sn,
       do1: expected,
-      meterName: METER_NAME_DOC,
+      meterName,
       method: "FORCESWITCH",
       ForceSwitch: expected
     }
@@ -608,7 +614,9 @@ const processInboundMessage = async (topic: string, payloadText: string): Promis
 
 const publishOneCommand = async (command: CommandRow): Promise<void> => {
   const topic = buildCommandOutboundTopic(command.product_key, command.sn);
-  const payloadObj = buildOutboundCommandPayload(command);
+  const device = await getDeviceBySn(dbPool, command.sn);
+  const meterName = buildMeterName(device?.project_name ?? null, device?.model ?? null, command.sn);
+  const payloadObj = buildOutboundCommandPayload(command, meterName);
   const payload = JSON.stringify(payloadObj);
 
   console.log("[mqtt-worker][command] publish_outbound", {
@@ -885,7 +893,9 @@ const logVerifyTimeoutContext = async (
   const outboundTopic = buildCommandOutboundTopic(cmd.product_key, cmd.sn);
   let outboundPayload: Record<string, unknown>;
   try {
-    outboundPayload = buildOutboundCommandPayload(cmd);
+    const device = await getDeviceBySn(dbPool, cmd.sn);
+    const meterName = buildMeterName(device?.project_name ?? null, device?.model ?? null, cmd.sn);
+    outboundPayload = buildOutboundCommandPayload(cmd, meterName);
   } catch {
     outboundPayload = { error: "buildOutboundCommandPayload_failed" };
   }

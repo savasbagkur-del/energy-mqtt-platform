@@ -1389,7 +1389,8 @@ const toMetadataInput = (
     dealer: str("dealer") ?? null,
     installDate: str("installDate") ?? str("install_date") ?? null,
     notes: str("notes") ?? null,
-    telemetryMode: telemetryModeRaw ?? null
+    telemetryMode: telemetryModeRaw ?? null,
+    projectName: str("projectName") ?? str("project_name") ?? null
   };
 };
 

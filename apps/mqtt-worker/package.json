@@ -16,7 +16,7 @@
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/command-lifecycle.scenario.test.ts src/reconciler.test.ts src/device-cadence.test.ts"
+    "test": "node --import tsx --test src/command-lifecycle.scenario.test.ts src/reconciler.test.ts src/device-cadence.test.ts src/meter-name.test.ts"
   },
   "dependencies": {
     "@communication/contracts": "workspace:*",

@@ -30,6 +30,7 @@ const DEVICE_COLUMNS = `
   softversion,
   network,
   model,
+  project_name,
   telemetry_mode,
   updated_at,
   registry_status,

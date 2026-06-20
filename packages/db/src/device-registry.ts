@@ -76,6 +76,8 @@ export interface DeviceMetadataInput {
   notes?: string | null;
   /** 'consumption' | 'analysis' | null — which metrics to persist for this device. */
   telemetryMode?: string | null;
+  /** Project/site name; used to build outbound meterName as "<project>-<model>-<sn>". */
+  projectName?: string | null;
 }
 
 const REGISTRY_SELECT = `
@@ -84,7 +86,7 @@ const REGISTRY_SELECT = `
     d.customer_id::text AS customer_id, c.name AS customer_name,
     d.property_type_id, pt.code AS property_type_code, pt.label AS property_type_label,
     d.address_line, d.district, d.city, d.lat, d.lng,
-    d.tariff, d.region, d.dealer, d.install_date, d.notes, d.telemetry_mode, d.model,
+    d.tariff, d.region, d.dealer, d.install_date, d.notes, d.telemetry_mode, d.model, d.project_name,
     d.registry_status, d.lifecycle_status, d.registered_at, d.commissioned_at, d.last_seen_at
   FROM devices d
   LEFT JOIN customers c ON c.id = d.customer_id
@@ -104,10 +106,10 @@ export const registerDevice = async (
     `INSERT INTO devices (
       sn, product_key, label, subscriber_no, customer_id, property_type_id,
       address_line, district, city, lat, lng, tariff, region, dealer, install_date, notes,
-      telemetry_mode,
+      telemetry_mode, project_name,
       registry_status, lifecycle_status, registered_at, updated_at
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
       'registered', 'registered', NOW(), NOW()
     )
     ON CONFLICT (sn) DO UPDATE SET
@@ -127,6 +129,7 @@ export const registerDevice = async (
       install_date = COALESCE(EXCLUDED.install_date, devices.install_date),
       notes = COALESCE(EXCLUDED.notes, devices.notes),
       telemetry_mode = COALESCE(EXCLUDED.telemetry_mode, devices.telemetry_mode),
+      project_name = COALESCE(EXCLUDED.project_name, devices.project_name),
       registry_status = 'registered',
       registered_at = COALESCE(devices.registered_at, NOW()),
       -- promote a never-contacted registration to 'registered' lifecycle; keep contacted state
@@ -149,7 +152,8 @@ export const registerDevice = async (
       input.dealer ?? null,
       input.installDate ?? null,
       input.notes ?? null,
-      input.telemetryMode ?? null
+      input.telemetryMode ?? null,
+      input.projectName ?? null
     ]
   );
   // Mode may have just changed; drop the cached value so the telemetry path re-reads it.

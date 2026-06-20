@@ -159,6 +159,7 @@ export interface DeviceRow {
   softversion: string | null;
   network: unknown;
   model: string | null;
+  project_name: string | null;
   telemetry_mode: string | null;
   wake_interval_minutes: number | null;
   last_poll_at: string | null;
@@ -214,6 +215,7 @@ export interface DeviceRegistryRow {
   notes: string | null;
   telemetry_mode: string | null;
   model: string | null;
+  project_name: string | null;
   registry_status: string;
   lifecycle_status: string;
   registered_at: string | null;
