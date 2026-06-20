@@ -469,14 +469,15 @@
   // ================================================================ OVERVIEW
   async function renderOverview(silent) {
     if (!silent) view.innerHTML = `<div class="loading">Filo özeti yükleniyor…</div>`;
-    let ov, offline, alarms, owing, cmdAlarms;
+    let ov, offline, alarms, owing, cmdAlarms, projects;
     try {
-      [ov, offline, alarms, owing, cmdAlarms] = await Promise.all([
+      [ov, offline, alarms, owing, cmdAlarms, projects] = await Promise.all([
         api("GET", `/fleet/overview?window=${state.settings.onlineWindowSec}`),
         api("GET", `/fleet/devices?online=false&limit=6&window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?alarm=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?owing=true&limit=6`).catch(() => ({ items: [] })),
-        api("GET", `/alarms?status=open&limit=6`).catch(() => ({ items: [] }))
+        api("GET", `/alarms?status=open&limit=6`).catch(() => ({ items: [] })),
+        api("GET", `/fleet/projects?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] }))
       ]);
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
     state.lastOverview = ov;
@@ -500,16 +501,37 @@
     };
     const pctOnline = ov.managed ? Math.round((ov.online / ov.managed) * 100) : 0;
 
+    // Admin (system owner) top row: fleet-wide totals only.
     const kpis = [
       kpi("accent", ICO.meter, "Toplam Sayaç", nf(ov.total), "", `${nf(ov.managed)} yönetilen · ${nf(ov.new24h)} yeni (24s)`),
-      kpi("good", ICO.online, "Çevrimiçi", nf(ov.online), "", `yönetilenlerin %${pctOnline}'i`),
-      kpi(ov.offline ? "bad" : "", ICO.offline, "Çevrimdışı", nf(ov.offline), "", `${state.settings.onlineWindowSec}s eşik`),
-      kpi("accent", ICO.bolt, "Anlık Toplam Güç", nf(ov.totalActivePowerKw, 2), "kW", `çevrimiçi sayaçlar`),
-      kpi("accent", ICO.energy, "Toplam Enerji", nf(ov.totalEnergyKwh, 1), "kWh", `kümülatif endeks`),
-      kpi(ov.alarms ? "warn" : "", ICO.alarm, "Aktif Alarm", nf(ov.alarms), "", `cihazda alarm bayrağı`),
-      kpi(ov.owing ? "warn" : "", ICO.money, "Borçlu Sayaç", nf(ov.owing), "", `bakiye < 0`),
+      kpi("good", ICO.online, "Çevrim İçi", nf(ov.online), "", `yönetilenlerin %${pctOnline}'i`),
+      kpi(ov.offline ? "bad" : "", ICO.offline, "Çevrim Dışı", nf(ov.offline), "", `${state.settings.onlineWindowSec}s eşik`),
       kpi(ov.quarantined ? "bad" : "", ICO.shield, "Karantina", nf(ov.quarantined), "", `onay bekliyor`)
     ].join("");
+
+    // Per-project rollup cards (same window aesthetic, multi-stat body).
+    const projItems = (projects && projects.items) || [];
+    const projCard = (p) => {
+      const name = p.projectName && String(p.projectName).trim() ? p.projectName : "Atanmamış";
+      const alarmCls = p.openAlarms ? " has-alarm" : "";
+      return `<div class="proj-card${alarmCls}">
+        <div class="proj-head">
+          <span class="proj-name" title="${esc(name)}">${esc(name)}</span>
+          ${p.openAlarms ? `<span class="pill bad"><span class="pdot"></span>${nf(p.openAlarms)} alarm</span>` : `<span class="pill on"><span class="pdot"></span>stabil</span>`}
+        </div>
+        <div class="proj-stats">
+          <div class="ps"><div class="ps-v">${nf(p.total)}</div><div class="ps-l">Sayaç</div></div>
+          <div class="ps"><div class="ps-v on">${nf(p.online)}</div><div class="ps-l">Aktif</div></div>
+          <div class="ps"><div class="ps-v ${p.offline ? "off" : ""}">${nf(p.offline)}</div><div class="ps-l">Çevrim Dışı</div></div>
+          <div class="ps" style="grid-column: span 2"><div class="ps-v">${nf(p.totalEnergyKwh, 1)}<small style="font-size:12px;color:var(--muted);font-weight:700"> kWh</small></div><div class="ps-l">Toplam Enerji</div></div>
+          <div class="ps"><div class="ps-v ${p.openAlarms ? "bad" : ""}">${nf(p.openAlarms)}</div><div class="ps-l">Alarm</div></div>
+        </div>
+      </div>`;
+    };
+    const projHtml = projItems.length
+      ? `<div class="section-head"><h2>Projeler</h2><div class="sub">${nf(projItems.length)} proje · sayaç, durum, enerji ve alarm</div></div>
+         <div class="proj-grid">${projItems.map(projCard).join("")}</div>`
+      : "";
 
     // attention list (dedup by sn, severity-ordered; command alarms take precedence)
     const att = new Map();
@@ -543,6 +565,7 @@
         <div class="head-actions"><button class="btn" data-go="devices">Tüm cihazlar</button></div>
       </div>
       <div class="kpi-grid">${kpis}</div>
+      ${projHtml}
       <div class="grid-2">
         <div class="panel">
           <div class="panel-head"><h2>Filo Durumu</h2><div class="panel-actions"><span class="pill ${ov.alarms ? "warn" : "on"}"><span class="pdot"></span>${ov.alarms ? "alarm var" : "stabil"}</span></div></div>

@@ -283,6 +283,23 @@ select { cursor: pointer; }
 .kpi.info .kpi-ic { background: var(--info-soft); color: var(--info-text); }
 .kpi.info::before { background: var(--info-soft); } .kpi.info::after { background: linear-gradient(90deg, var(--info), var(--color-secondary)); }
 
+/* Per-project rollup cards (admin overview) — same surface as KPI windows, multi-stat body. */
+.section-head { display: flex; align-items: baseline; justify-content: space-between; margin: 22px 0 12px; }
+.section-head h2 { font-size: 15px; font-weight: 700; }
+.section-head .sub { font-size: 12px; color: var(--muted); }
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.proj-card { position: relative; overflow: hidden; background: linear-gradient(165deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 15px; box-shadow: var(--shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.proj-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); border-color: var(--line-2); }
+.proj-card::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--brand-grad); opacity: .85; }
+.proj-card.has-alarm::after { background: linear-gradient(90deg, var(--bad), var(--warn)); }
+.proj-card .proj-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.proj-card .proj-name { font-size: 14px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 6px; }
+.proj-stats .ps { text-align: center; }
+.proj-stats .ps-v { font-size: 20px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.proj-stats .ps-l { margin-top: 5px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.proj-stats .ps-v.on { color: var(--on-text); } .proj-stats .ps-v.off { color: var(--off-text, var(--muted)); } .proj-stats .ps-v.bad { color: var(--bad-text); }
+
 .grid-2 { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; align-items: start; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 @media (max-width: 1100px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }

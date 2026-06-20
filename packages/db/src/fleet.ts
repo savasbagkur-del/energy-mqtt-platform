@@ -96,6 +96,57 @@ export const getFleetOverview = async (
   };
 };
 
+export interface ProjectOverviewRow {
+  /** project_name; null bucket = devices with no project assigned yet. */
+  projectName: string | null;
+  total: number;
+  online: number;
+  offline: number;
+  totalEnergyKwh: number;
+  openAlarms: number;
+}
+
+/**
+ * Per-project rollup for the admin overview: managed (registered/auto) meters grouped by
+ * devices.project_name with online/offline counts, summed energy index, and open command-alarm
+ * counts (device_alarms ledger). Single grouped query — scales with the fleet, not the browser.
+ */
+export const getProjectOverview = async (
+  pool: Pool,
+  onlineWindowSec = 300
+): Promise<ProjectOverviewRow[]> => {
+  const win = String(clampInt(onlineWindowSec, 300, 30, 86400));
+  const res = await pool.query(
+    `SELECT
+       d.project_name,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE ls.last_seen_at >= NOW() - ($1 || ' seconds')::interval) AS online,
+       COALESCE(SUM(ls.energy_import_kwh), 0) AS total_energy_kwh,
+       COALESCE(SUM(COALESCE(oa.cnt, 0)), 0) AS open_alarms
+     FROM devices d
+     LEFT JOIN device_latest_state ls ON ls.sn = d.sn
+     LEFT JOIN (
+       SELECT sn, COUNT(*) AS cnt FROM device_alarms WHERE status = 'open' GROUP BY sn
+     ) oa ON oa.sn = d.sn
+     WHERE d.registry_status IN ('registered', 'auto')
+     GROUP BY d.project_name
+     ORDER BY COUNT(*) DESC, d.project_name NULLS LAST`,
+    [win]
+  );
+  return res.rows.map((r) => {
+    const total = int(r.total);
+    const online = int(r.online);
+    return {
+      projectName: (r.project_name as string | null) ?? null,
+      total,
+      online,
+      offline: Math.max(total - online, 0),
+      totalEnergyKwh: num(r.total_energy_kwh) ?? 0,
+      openAlarms: int(r.open_alarms)
+    };
+  });
+};
+
 export interface FleetDeviceRow {
   sn: string;
   label: string | null;

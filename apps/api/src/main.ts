@@ -49,6 +49,7 @@ import {
   checkDeviceApprovalReadiness,
   setDeviceLifecycle,
   getFleetOverview,
+  getProjectOverview,
   listFleetDevices,
   getDeviceTelemetry,
   getTelemetrySeries,
@@ -1689,6 +1690,18 @@ app.get("/fleet/overview", async (req, res) => {
   } catch (error) {
     console.error("[api] failed to build fleet overview", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_build_fleet_overview" });
+  }
+});
+
+// Per-project rollup (managed meters grouped by project_name) for the admin overview.
+app.get("/fleet/projects", async (req, res) => {
+  try {
+    const win = typeof req.query.window === "string" ? Number(req.query.window) : undefined;
+    const items = await getProjectOverview(dbPool, win);
+    res.status(200).json({ count: items.length, items });
+  } catch (error) {
+    console.error("[api] failed to build project overview", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_build_project_overview" });
   }
 });
 
