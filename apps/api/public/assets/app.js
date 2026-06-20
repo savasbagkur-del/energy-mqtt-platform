@@ -542,8 +542,10 @@
       </div>`;
     };
     const projHtml = projItems.length
-      ? `<div class="section-head"><h2>Projeler</h2><div class="sub">${nf(projItems.length)} proje · sayaç, durum, enerji ve alarm</div></div>
-         <div class="proj-grid">${projItems.map(projCard).join("")}</div>`
+      ? `<div class="panel proj-panel">
+           <div class="panel-head"><h2>Projeler</h2><div class="panel-actions"><span class="panel-note">${nf(projItems.length)} proje · sayaç, durum, enerji ve alarm</span></div></div>
+           <div class="panel-pad"><div class="proj-grid">${projItems.map(projCard).join("")}</div></div>
+         </div>`
       : "";
 
     // attention list (dedup by sn, severity-ordered; command alarms take precedence)

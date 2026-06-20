@@ -334,6 +334,9 @@ select { cursor: pointer; }
 .section-head h2 { font-size: 15px; font-weight: 700; }
 .section-head .sub { font-size: 12px; color: var(--muted); }
 .proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.proj-panel { margin-top: 16px; }
+.proj-panel .proj-grid { margin-bottom: 0; }
+.panel-note { font-size: 12px; color: var(--muted); }
 .proj-card { position: relative; overflow: hidden; background: linear-gradient(165deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); border-radius: var(--radius); padding: 15px 16px 14px; box-shadow: var(--shadow); transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .proj-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); border-color: var(--line-2); }
 .proj-card::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--brand-grad); opacity: .9; }
