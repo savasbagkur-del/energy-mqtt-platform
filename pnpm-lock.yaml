@@ -85,6 +85,9 @@ importers:
       '@types/pg':
         specifier: ^8.15.2
         version: 8.20.0
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
 
   packages/mqtt:
     dependencies:
