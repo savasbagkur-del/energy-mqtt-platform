@@ -1495,7 +1495,6 @@
     // Leaving the device that has a fast-polling command in flight → drop back to idle cadence.
     if (state.activeCmd && !(r.name === "device" && r.param === state.activeCmd.sn)) state.activeCmd = null;
     setNavActive(r.name);
-    closeSidebar();
     try {
       switch (r.name) {
         case "overview": await renderOverview(); break;
@@ -1539,20 +1538,18 @@
   }, 350));
   $("#globalSearch").addEventListener("keydown", (e) => { if (e.key === "Enter" && state.route.name !== "devices") navigate("#/devices"); });
 
-  // -------- off-canvas nav drawer (toggled from the topbar on every viewport)
+  // -------- iPad-style floating dock nav (toggled from the topbar; stays open across tabs)
   const sidebar = $("#sidebar");
-  const navScrim = $("#navScrim");
   const menuToggle = $("#menuToggle");
   function setMenu(open) {
     sidebar.classList.toggle("open", open);
-    navScrim.classList.toggle("show", open);
+    document.body.classList.toggle("dock-open", open);
     menuToggle.classList.toggle("active", open);
     menuToggle.setAttribute("aria-expanded", open ? "true" : "false");
     menuToggle.textContent = open ? "✕" : "☰";
   }
   function closeSidebar() { setMenu(false); }
   menuToggle.addEventListener("click", () => setMenu(!sidebar.classList.contains("open")));
-  navScrim.addEventListener("click", closeSidebar);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSidebar(); });
 
   // -------- session bootstrap
