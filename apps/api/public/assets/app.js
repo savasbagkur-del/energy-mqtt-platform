@@ -377,11 +377,39 @@
   }
 
   function cmdClass(status) {
-    const ok = ["verified_success", "verified_success_with_late_confirmation"];
-    const bad = ["failed", "delivery_timeout", "expired", "verified_mismatch", "cancelled"];
+    const ok = ["verified_success", "verified_success_with_late_confirmation", "reconciled"];
+    const bad = ["failed", "delivery_timeout", "expired", "verified_mismatch", "cancelled", "needs_attention"];
     if (ok.includes(status)) return "ok";
     if (bad.includes(status)) return "bad";
     return "pend";
+  }
+
+  // Human label for desired-state reconcile_status (bounded 3-cycle command model).
+  function reconcileLabel(status) {
+    const map = {
+      pending: "bekliyor",
+      in_flight: "gönderiliyor",
+      reconciled: "tamamlandı",
+      unreachable: "ulaşılamıyor (tutuluyor)",
+      needs_attention: "dikkat gerekiyor"
+    };
+    return map[status] || status;
+  }
+
+  function alarmTypeLabel(type) {
+    const map = { COMMAND_CONFIRMATION_TIMEOUT: "Komut teyit zaman aşımı" };
+    return map[type] || type;
+  }
+  function alarmSevClass(sev) {
+    return sev === "critical" ? "bad" : sev === "warning" ? "warn" : "info";
+  }
+  // One open-alarm row with an acknowledge button (handled via delegation on data-ack).
+  function alarmRow(a) {
+    return `<div class="alarm-line sev-${alarmSevClass(a.severity)}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)">
+        <span class="pill ${alarmSevClass(a.severity)}"><span class="pdot"></span>${esc(alarmTypeLabel(a.alarm_type))}</span>
+        <div style="flex:1;min-width:0"><div style="font-size:13px">${esc(a.message || "")}</div><div class="muted" style="font-size:11px">${timeAgo(a.raised_at)}</div></div>
+        <button class="btn xs ghost" data-ack="${esc(a.id)}">Onayla</button>
+      </div>`;
   }
 
   // ---- adaptive polling: slow when idle, fast burst while a command is reconciling ----
@@ -441,17 +469,18 @@
   // ================================================================ OVERVIEW
   async function renderOverview(silent) {
     if (!silent) view.innerHTML = `<div class="loading">Filo özeti yükleniyor…</div>`;
-    let ov, offline, alarms, owing;
+    let ov, offline, alarms, owing, cmdAlarms;
     try {
-      [ov, offline, alarms, owing] = await Promise.all([
+      [ov, offline, alarms, owing, cmdAlarms] = await Promise.all([
         api("GET", `/fleet/overview?window=${state.settings.onlineWindowSec}`),
         api("GET", `/fleet/devices?online=false&limit=6&window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?alarm=true&limit=6`).catch(() => ({ items: [] })),
-        api("GET", `/fleet/devices?owing=true&limit=6`).catch(() => ({ items: [] }))
+        api("GET", `/fleet/devices?owing=true&limit=6`).catch(() => ({ items: [] })),
+        api("GET", `/alarms?status=open&limit=6`).catch(() => ({ items: [] }))
       ]);
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
     state.lastOverview = ov;
-    setAlarmBadge(ov.alarms + ov.owing);
+    setAlarmBadge((cmdAlarms.items || []).length + ov.alarms + ov.owing);
 
     const kpi = (cls, ic, label, val, unitTxt, sub) => `
       <div class="kpi ${cls}">
@@ -482,9 +511,14 @@
       kpi(ov.quarantined ? "bad" : "", ICO.shield, "Karantina", nf(ov.quarantined), "", `onay bekliyor`)
     ].join("");
 
-    // attention list (dedup by sn, severity-ordered)
+    // attention list (dedup by sn, severity-ordered; command alarms take precedence)
     const att = new Map();
-    (alarms.items || []).forEach((d) => att.set(d.sn, { d, sev: "bad", reason: "Alarm bayrağı" }));
+    (cmdAlarms.items || []).forEach((a) => att.set(a.sn, {
+      d: { sn: a.sn, label: a.label, customer_name: a.customer_name, last_seen_at: a.raised_at },
+      sev: "bad",
+      reason: alarmTypeLabel(a.alarm_type)
+    }));
+    (alarms.items || []).forEach((d) => { if (!att.has(d.sn)) att.set(d.sn, { d, sev: "bad", reason: "Alarm bayrağı" }); });
     (owing.items || []).forEach((d) => { if (!att.has(d.sn)) att.set(d.sn, { d, sev: "warn", reason: "Bakiye borçlu" }); });
     (offline.items || []).forEach((d) => { if (!att.has(d.sn) && d.registry_status !== "quarantined") att.set(d.sn, { d, sev: "info", reason: "Çevrimdışı" }); });
     const attArr = Array.from(att.values()).slice(0, 8);
@@ -691,23 +725,33 @@
     const txt = sw === "on" ? "AÇIK" : sw === "off" ? "KAPALI" : "BİLİNMİYOR";
     return `<div class="relay-badge ${cls}"><div class="rb-state">${txt}</div><div class="rb-sub">röle (decode)</div></div>`;
   }
-  // Mirrors RECONCILE_ONLINE_FAIL_ALARM_ATTEMPTS (worker default): once an online device has been
-  // re-driven this many times without confirming, the backend raises a fault alarm. Surface it here.
-  const ONLINE_FAULT_ATTEMPTS = 30;
+  // Bounded 3-cycle command model: the reconciler drives at most CYCLE_COUNT cycles, then marks
+  // the desired state `needs_attention` and raises a COMMAND_CONFIRMATION_TIMEOUT alarm.
+  const CYCLE_COUNT = 3;
   function desiredHtml(cv) {
     const d = cv && cv.desired;
-    if (!d) return `<div class="muted" style="margin-top:14px">Aktif irade yok — röle bildirilen durumda.</div>`;
-    const pending = cmdClass(d.reconcile_status) === "pend";
-    const online = !!(cv && cv.onlineFresh);
-    const fault = pending && online && Number(d.attempt_count) >= ONLINE_FAULT_ATTEMPTS;
-    const faultBanner = fault
-      ? `<div class="fault-banner">⚠ ARIZA: Cihaz çevrimiçi görünüyor ama ${nf(d.attempt_count)} denemede röle hedeflenen duruma geçmedi. Komut tutuluyor, denemeye devam ediliyor.</div>`
+    const alarms = (cv && cv.alarms) || [];
+    const alarmsBlock = alarms.length
+      ? `<div style="margin-top:12px">${alarms.map(alarmRow).join("")}</div>`
       : "";
-    return `${faultBanner}<div class="kv" style="margin-top:14px">
-        <dt>İrade durumu</dt><dd><span class="pill ${fault ? "bad" : cmdClass(d.reconcile_status)}">${fault ? "arıza" : esc(d.reconcile_status)}</span></dd>
+    if (!d) {
+      return `<div class="muted" style="margin-top:14px">Aktif irade yok — röle bildirilen durumda.</div>${alarmsBlock}`;
+    }
+    const needsAttention = d.reconcile_status === "needs_attention";
+    const cls = cmdClass(d.reconcile_status);
+    const cycleNo = Number(d.cycle_no) || 0;
+    const banner = needsAttention
+      ? `<div class="fault-banner">⚠ DİKKAT GEREKİYOR: ${CYCLE_COUNT} tur denendi, cihaz röleyi hedeflenen duruma geçirmedi. Hedef korunuyor; cihaz yanıt verene kadar müdahale gerekebilir.</div>`
+      : "";
+    const cycleRow = cycleNo > 0 && !needsAttention
+      ? `<dt>Tur</dt><dd>${cycleNo}/${CYCLE_COUNT}</dd>`
+      : "";
+    return `${banner}<div class="kv" style="margin-top:14px">
+        <dt>İrade durumu</dt><dd><span class="pill ${cls}">${esc(reconcileLabel(d.reconcile_status))}</span></dd>
         <dt>Hedef</dt><dd class="mono">${esc(JSON.stringify(d.desired_value))}</dd>
+        ${cycleRow}
         <dt>Deneme</dt><dd>${nf(d.attempt_count)}</dd>
-      </div>`;
+      </div>${alarmsBlock}`;
   }
   function gaugesHtml(m) {
     return gauge({ value: m.voltage_v, min: 180, max: 260, unit: "V", label: "Gerilim", digits: 0, zones: [{ to: 0.18, color: "var(--bad)" }, { to: 0.32, color: "var(--warn)" }, { to: 0.85, color: "var(--on)" }, { to: 1, color: "var(--warn)" }] })
@@ -762,9 +806,15 @@
       ${cad ? `<dt>Ritim (EWMA)</dt><dd>${cad.ewmaReconnectSec != null ? nf(cad.ewmaReconnectSec, 0) + "s" : "—"} <span class="muted">(${nf(cad.sampleCount)} örnek)</span></dd>` : ""}
       ${at ? `<dt>Gating penceresi</dt><dd>${nf(at.gatingWindowSec)}s</dd><dt>Komut TTL/ACK/retry</dt><dd>${at.commandTtlSec}/${at.ackTimeoutSec}/${at.retryIntervalSec}s</dd>` : ""}`;
   }
-  function pillsHtml(online, m, reg) {
+  function pillsHtml(online, m, reg, cv) {
     const owe = m.owe_money, alarmFlag = (m.alarm_a && m.alarm_a > 0) || (m.alarm_b && m.alarm_b > 0);
-    return `${reg ? statusPill(reg.registry_status) : ""}${onlinePill(online)}${alarmFlag ? `<span class="pill bad"><span class="pdot"></span>ALARM</span>` : ""}${owe > 0 ? `<span class="pill warn"><span class="pdot"></span>BORÇLU</span>` : ""}`;
+    const d = cv && cv.desired;
+    const needsAttention = !!(d && d.reconcile_status === "needs_attention");
+    const cmdAlarm = !!(cv && cv.alarms && cv.alarms.length);
+    const attentionPill = (needsAttention || cmdAlarm)
+      ? `<span class="pill bad"><span class="pdot"></span>DİKKAT</span>`
+      : "";
+    return `${reg ? statusPill(reg.registry_status) : ""}${onlinePill(online)}${attentionPill}${alarmFlag ? `<span class="pill bad"><span class="pdot"></span>ALARM</span>` : ""}${owe > 0 ? `<span class="pill warn"><span class="pdot"></span>BORÇLU</span>` : ""}`;
   }
 
   function applyDeviceDynamic(tel, cv, reg) {
@@ -773,7 +823,7 @@
     const lastSeen = (cv && cv.lastSeen) || m.last_seen_at || (reg && reg.last_seen_at) || null;
     const online = cv ? cv.onlineFresh : (lastSeen ? (Date.now() - new Date(lastSeen).getTime() < state.settings.onlineWindowSec * 1000) : false);
     const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
-    set("hdrPills", pillsHtml(online, m, reg));
+    set("hdrPills", pillsHtml(online, m, reg, cv));
     set("relaySlot", relayHtml(sw));
     set("desiredSlot", desiredHtml(cv));
     set("gaugeSlot", gaugesHtml(m));
@@ -912,6 +962,12 @@
     $("#btnOff").addEventListener("click", () => switchAction(sn, 0));
     $("#btnClear").addEventListener("click", () => clearDesired(sn));
     $("#devRefreshCmd").addEventListener("click", () => refreshCmd(sn));
+    // Delegated: acknowledge buttons live inside the auto-refreshed desired slot.
+    const dslot = $("#desiredSlot");
+    if (dslot) dslot.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-ack]"); if (!b) return;
+      ackAlarm(b.getAttribute("data-ack"), sn);
+    });
     if (reg) { const open = () => openRegisterModal(reg); const e1 = $("#devEdit"), e2 = $("#devEdit2"); if (e1) e1.addEventListener("click", open); if (e2) e2.addEventListener("click", open); }
     const ap = $("#lcApprove"); if (ap) ap.addEventListener("click", () => approveDevice(sn, () => { view.removeAttribute("data-device"); renderDevice(sn); }));
     const dc = $("#lcDecom"); if (dc) dc.addEventListener("click", async () => { if (!confirm("Cihaz devre dışı bırakılsın mı?")) return; try { await api("POST", `/registry/devices/${encodeURIComponent(sn)}/lifecycle`, { lifecycle: "decommissioned" }); toast("Güncellendi", "", "success"); view.removeAttribute("data-device"); renderDevice(sn); } catch (e) { toast("Hata", e.message, "error"); } });
@@ -1012,6 +1068,13 @@
     try { await api("DELETE", `/devices/${encodeURIComponent(sn)}/desired/switch`); toast("İrade temizlendi", "", "success"); renderDevice(sn, true); }
     catch (e) { toast("Hata", e.message, "error"); }
   }
+  async function ackAlarm(id, afterSn) {
+    try {
+      await api("POST", `/alarms/${encodeURIComponent(id)}/acknowledge`);
+      toast("Alarm onaylandı", "", "success");
+      if (afterSn) renderDevice(afterSn, true); else reloadCurrentView();
+    } catch (e) { toast("Hata", e.message, "error"); }
+  }
   async function refreshCmd(sn) {
     try { await api("POST", `/devices/${encodeURIComponent(sn)}/commands/refresh`); toast("Yenileme istendi", "Cihazdan güncel durum talep edildi.", "success"); state.activeCmd = { sn, deadline: Date.now() + commandSettleWindowMs(null) }; lastRefreshAt = 0; setTimeout(() => renderDevice(sn, true), 600); }
     catch (e) { toast("Hata", e.message, "error"); }
@@ -1021,23 +1084,32 @@
   const alarmsState = { filter: "all" };
   async function renderAlarms(silent) {
     if (!silent) view.innerHTML = `
-      <div class="page-head"><div><h1>Alarmlar & Olaylar</h1><div class="sub">çevrimdışı, alarm bayrağı ve borçlu sayaçlar</div></div></div>
+      <div class="page-head"><div><h1>Alarmlar & Olaylar</h1><div class="sub">komut alarmları (dikkat gerekiyor), çevrimdışı, alarm bayrağı ve borçlu sayaçlar</div></div></div>
       <div class="toolbar"><div class="seg" id="alSeg">
-        <button data-v="all" class="active">Tümü</button><button data-v="offline">Çevrimdışı</button>
+        <button data-v="all" class="active">Tümü</button><button data-v="cmd">Komut</button><button data-v="offline">Çevrimdışı</button>
         <button data-v="alarm">Alarm</button><button data-v="owing">Borçlu</button>
       </div></div>
       <div class="panel"><div id="alList"><div class="loading">Yükleniyor…</div></div></div>`;
     const list = $("#alList"); if (!list) return;
-    let offline, alarm, owing;
+    let offline, alarm, owing, cmd;
     try {
-      [offline, alarm, owing] = await Promise.all([
+      [offline, alarm, owing, cmd] = await Promise.all([
         api("GET", `/fleet/devices?online=false&limit=200&window=${state.settings.onlineWindowSec}`),
         api("GET", `/fleet/devices?alarm=true&limit=200`),
-        api("GET", `/fleet/devices?owing=true&limit=200`)
+        api("GET", `/fleet/devices?owing=true&limit=200`),
+        api("GET", `/alarms?status=open&limit=200`).catch(() => ({ items: [] }))
       ]);
     } catch (e) { list.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
 
     const items = [];
+    // Command-confirmation alarms from the device_alarms ledger (highest priority).
+    (cmd.items || []).forEach((a) => items.push({
+      d: { sn: a.sn, label: a.label, customer_name: a.customer_name, city: null, last_seen_at: a.raised_at },
+      sev: alarmSevClass(a.severity),
+      reason: alarmTypeLabel(a.alarm_type) + (a.message ? " — " + a.message : ""),
+      kind: "cmd",
+      alarm: a
+    }));
     (alarm.items || []).forEach((d) => items.push({ d, sev: "bad", reason: "Cihaz alarm bayrağı (alarm_a/b)", kind: "alarm" }));
     (owing.items || []).forEach((d) => items.push({ d, sev: "warn", reason: "Bakiye borçlu (owe_money)", kind: "owing" }));
     (offline.items || []).forEach((d) => { if (d.registry_status !== "quarantined") items.push({ d, sev: "info", reason: `Çevrimdışı (>${state.settings.onlineWindowSec}s)`, kind: "offline" }); });
@@ -1056,13 +1128,20 @@
           <div class="a-ic">${x.kind === "offline" ? ICO_OFF : x.kind === "owing" ? ICO_MN : ICO_AL}</div>
           <div class="a-main"><div class="a-title">${esc(x.d.label || x.d.sn)}</div>
             <div class="a-sub">${esc(x.reason)} · <span class="mono">${esc(x.d.sn)}</span>${x.d.customer_name ? " · " + esc(x.d.customer_name) : ""}${x.d.city ? " · " + esc(x.d.city) : ""}</div></div>
+          ${x.kind === "cmd" ? `<button class="btn xs ghost" data-ack="${esc(x.alarm.id)}">Onayla</button>` : ""}
           <div class="a-time">${timeAgo(x.d.last_seen_at)}</div>
         </div>`).join("");
-      $$("[data-sn]", list).forEach((el) => el.addEventListener("click", () => navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`)));
+      $$(".alarm-item", list).forEach((el) => el.addEventListener("click", (e) => {
+        if (e.target.closest("[data-ack]")) return;
+        navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`);
+      }));
+      $$("[data-ack]", list).forEach((b) => b.addEventListener("click", (e) => {
+        e.stopPropagation(); ackAlarm(b.getAttribute("data-ack"));
+      }));
     };
     if (!silent) $("#alSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; alarmsState.filter = b.dataset.v; renderList(); });
     renderList();
-    setAlarmBadge((alarm.items || []).length + (owing.items || []).length);
+    setAlarmBadge((cmd.items || []).length + (alarm.items || []).length + (owing.items || []).length);
     state.refresher = renderAlarms;
   }
 

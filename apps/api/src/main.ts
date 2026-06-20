@@ -1600,12 +1600,13 @@ const decodeSwitch = (adfState1: number | null): "on" | "off" | "unknown" => {
 app.get("/devices/:sn/control-view", async (req, res) => {
   const sn = req.params.sn;
   try {
-    const [latest, desired, commands, cadence, policyView] = await Promise.all([
+    const [latest, desired, commands, cadence, policyView, openAlarms] = await Promise.all([
       getLatestStateBySn(dbPool, sn),
       getDesiredState(dbPool, sn),
       listCommandsBySn(dbPool, sn, 6),
       getDeviceCadence(dbPool, sn),
-      getEffectivePolicyForDevice(dbPool, { sn }, { adaptiveTiming: false })
+      getEffectivePolicyForDevice(dbPool, { sn }, { adaptiveTiming: false }),
+      listOpenAlarmsForSn(dbPool, sn)
     ]);
     const adaptiveTiming = deriveAdaptiveTiming(policyView.profile, cadence);
     const meter = extractMeterFields(latest?.last_payload, sn);
@@ -1637,10 +1638,12 @@ app.get("/devices/:sn/control-view", async (req, res) => {
             reconcile_status: desired.reconcile_status,
             desired_value: desired.desired_value,
             attempt_count: desired.attempt_count,
+            cycle_no: desired.cycle_no,
             last_command_id: desired.last_command_id,
             next_eval_at: desired.next_eval_at
           }
         : null,
+      alarms: openAlarms,
       cadence: cadence
         ? {
             ewmaReconnectSec: cadence.ewma_reconnect_sec,
