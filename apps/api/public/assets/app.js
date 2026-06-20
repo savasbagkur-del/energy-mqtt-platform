@@ -568,13 +568,6 @@
         <div class="a-time">${timeAgo(a.d.last_seen_at)}</div>
       </div>`).join("")}</div>` : `<div class="alarm-empty"><div class="ae-ic">✓</div><div class="ae-txt"><b>Her şey yolunda</b><span>Dikkat gerektiren sayaç yok.</span></div></div>`;
 
-    const segs = [
-      { label: "Çevrimiçi", value: ov.online, color: "var(--on)" },
-      { label: "Çevrimdışı", value: ov.offline, color: "var(--off)" },
-      { label: "Karantina", value: ov.quarantined, color: "var(--bad)" }
-    ];
-    const legend = segs.map((s) => `<div class="dl"><i style="background:${s.color}"></i>${s.label}<b>${nf(s.value)}</b></div>`).join("");
-
     // Device-mix donut: inner ring = status, outer ring = device type (model).
     const MODEL_COLORS = ["#3FA7A0", "#546E7A", "#6CA8D6", "#7FB77E", "#E0A84E", "#C94B4B", "#8E7CC3", "#5C8A8A", "#B5894E"];
     const statusSegs = [
@@ -606,25 +599,12 @@
         <div class="head-actions"><button class="btn" data-go="devices">Tüm cihazlar</button></div>
       </div>
       <div class="grid-2">
-        <div class="panel">
-          <div class="panel-head"><h2>Sayaç Durumu</h2><div class="panel-actions"><span class="pill ${ov.alarms ? "warn" : "on"}"><span class="pdot"></span>${ov.alarms ? "alarm var" : "stabil"}</span></div></div>
-          <div class="panel-pad">
-            <div class="donut-wrap">
-              ${donut(segs, ov.total)}
-              <div class="donut-legend">${legend}
-                <div class="dl" style="margin-top:6px;border-top:1px solid var(--line);padding-top:8px"><i style="background:var(--brand)"></i>Röle açık<b>${nf(ov.switchOn)}</b></div>
-                <div class="dl"><i style="background:var(--off)"></i>Röle kapalı<b>${nf(ov.switchOff)}</b></div>
-                <div class="dl"><i style="background:var(--info)"></i>Ort. sinyal<b>${ov.avgRssi != null ? nf(ov.avgRssi, 0) : "—"}</b></div>
-              </div>
-            </div>
-          </div>
-        </div>
+        ${mixHtml}
         <div class="panel">
           <div class="panel-head"><h2>Alarm ve Uyarılar</h2><div class="panel-actions">${attArr.length ? `<span class="pill ${attArr.some((a) => a.sev === "bad") ? "warn" : "on"}"><span class="pdot"></span>${nf(attArr.length)}</span>` : ""}<button class="btn sm ghost" data-go="alarms">Tümü →</button></div></div>
           <div>${attHtml}</div>
         </div>
       </div>
-      ${mixHtml}
       ${projHtml}`;
 
     $$("[data-sn]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`)));
