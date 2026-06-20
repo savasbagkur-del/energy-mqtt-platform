@@ -631,7 +631,7 @@
     const dlRow = (s) => `<div class="dl"><i style="background:${s.color}"></i>${esc(s.label)}<b>${nf(s.value)}<span class="dl-pct">%${pct(s.value, ov.total)}</span></b></div>`;
     const mixHtml = `
       <div class="panel">
-        <div class="panel-head"><h2>Cihaz Dağılımı</h2></div>
+        <div class="panel-head"><h2>Cihaz Dağılımı</h2><div class="panel-actions"><button class="btn sm ghost" data-go="devices">Tüm cihazlar →</button></div></div>
         <div class="panel-pad mix-pad">
           <div class="mix-wrap">
             <div class="mix-donut-wrap">${donut2(statusSegs, modelSegs, ov.total)}</div>
@@ -646,7 +646,6 @@
     view.innerHTML = `
       <div class="page-head">
         <div><h1>Genel Bakış</h1></div>
-        <div class="head-actions"><button class="btn" data-go="devices">Tüm cihazlar</button></div>
       </div>
       <div class="grid-2">
         ${mixHtml}
