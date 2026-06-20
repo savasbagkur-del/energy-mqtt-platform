@@ -1,4 +1,5 @@
 export type { Pool } from "pg";
+export * from "./alarms.js";
 export * from "./client.js";
 export * from "./client-bindings.js";
 export * from "./command-diagnostics.js";

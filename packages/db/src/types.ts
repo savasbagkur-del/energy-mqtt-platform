@@ -160,6 +160,9 @@ export interface DeviceRow {
   network: unknown;
   model: string | null;
   telemetry_mode: string | null;
+  wake_interval_minutes: number | null;
+  last_poll_at: string | null;
+  next_poll_at: string | null;
   updated_at: string;
   registry_status: string;
   lifecycle_status: string;
@@ -319,6 +322,9 @@ export interface CommandPolicyProfileRow {
   reconcile_min_backoff_sec?: number;
   reconcile_max_backoff_sec?: number;
   reconcile_unreachable_alarm_sec?: number;
+  command_cycle_count?: number;
+  command_signals_per_cycle?: number;
+  command_cycle_intervals_sec?: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -328,6 +334,7 @@ export type ReconcileStatus =
   | "in_flight"
   | "reconciled"
   | "unreachable"
+  | "needs_attention"
   | "superseded"
   | "cancelled";
 
@@ -343,11 +350,33 @@ export interface DeviceDesiredStateRow {
   desired_set_at: string;
   last_command_id: string | null;
   attempt_count: number;
+  /** Bounded retry cycle index: 0 = not started, 1..command_cycle_count. */
+  cycle_no: number;
   last_attempt_at: string | null;
   next_eval_at: string;
   reconciled_at: string | null;
   unreachable_since: string | null;
   created_at: string;
+  updated_at: string;
+}
+
+export type AlarmStatus = "open" | "cleared" | "acknowledged";
+export type AlarmSeverity = "info" | "warning" | "critical";
+
+export interface DeviceAlarmRow {
+  id: string;
+  sn: string;
+  command_id: string | null;
+  desired_state_id: string | null;
+  alarm_type: string;
+  severity: AlarmSeverity;
+  status: AlarmStatus;
+  message: string | null;
+  fields: unknown;
+  raised_at: string;
+  cleared_at: string | null;
+  acknowledged_at: string | null;
+  acknowledged_by: string | null;
   updated_at: string;
 }
 

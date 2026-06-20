@@ -84,6 +84,7 @@ export const upsertDesiredSwitch = async (
            desired_set_at = NOW(),
            reconcile_status = 'pending',
            attempt_count = CASE WHEN $6 THEN 0 ELSE attempt_count END,
+           cycle_no = 0,
            last_command_id = CASE WHEN $6 THEN NULL ELSE last_command_id END,
            unreachable_since = NULL,
            next_eval_at = NOW(),
@@ -231,7 +232,13 @@ export const markDesiredUnreachable = async (
 export const markDesiredInFlight = async (
   pool: Pool,
   id: string,
-  options: { commandId?: string | null; incrementAttempt: boolean; nextEvalAt: Date }
+  options: {
+    commandId?: string | null;
+    incrementAttempt: boolean;
+    nextEvalAt: Date;
+    /** When provided, set the bounded retry cycle index for this row. */
+    cycleNo?: number;
+  }
 ): Promise<void> => {
   await pool.query(
     `UPDATE device_desired_state SET
@@ -239,11 +246,29 @@ export const markDesiredInFlight = async (
        last_command_id = COALESCE($2, last_command_id),
        attempt_count = attempt_count + CASE WHEN $3 THEN 1 ELSE 0 END,
        last_attempt_at = CASE WHEN $3 THEN NOW() ELSE last_attempt_at END,
+       cycle_no = COALESCE($5, cycle_no),
        unreachable_since = NULL,
        next_eval_at = $4,
        updated_at = NOW()
      WHERE id = $1`,
-    [id, options.commandId ?? null, options.incrementAttempt, options.nextEvalAt]
+    [id, options.commandId ?? null, options.incrementAttempt, options.nextEvalAt, options.cycleNo ?? null]
+  );
+};
+
+/**
+ * Bounded-cycle budget exhausted while the device was online but never confirmed the new state.
+ * The desired state is intentionally KEPT (not cancelled): it resumes when the device next comes
+ * online (triggerReconcileForSn resets the cycle budget) or the operator re-issues the command.
+ * next_eval is pushed far out so the resting row is not auto-claimed until explicitly re-armed.
+ */
+export const markDesiredNeedsAttention = async (pool: Pool, id: string): Promise<void> => {
+  await pool.query(
+    `UPDATE device_desired_state SET
+       reconcile_status = 'needs_attention',
+       next_eval_at = NOW() + interval '1 day',
+       updated_at = NOW()
+     WHERE id = $1`,
+    [id]
   );
 };
 
@@ -258,11 +283,29 @@ export const setDesiredNextEval = async (
   );
 };
 
-/** Re-arm pending/unreachable rows for a device so the next reconciler pass acts immediately. */
+/**
+ * Re-arm desired rows for a device so the next reconciler pass acts immediately (called on
+ * presence-online / wake). Resting states (unreachable / needs_attention) are revived to
+ * 'pending' WITH a fresh cycle budget (cycle_no = 0) — a new online session earns a fresh set of
+ * bounded cycles. Rows already progressing (pending / in_flight) just get their eval bumped so we
+ * never reset a cycle mid-progress because the device sent routine telemetry.
+ */
 export const triggerReconcileForSn = async (pool: Pool, sn: string): Promise<void> => {
   await pool.query(
-    `UPDATE device_desired_state SET next_eval_at = NOW(), updated_at = NOW()
-     WHERE sn = $1 AND reconcile_status IN ('pending', 'in_flight', 'unreachable')`,
+    `UPDATE device_desired_state SET
+       reconcile_status = CASE
+         WHEN reconcile_status IN ('unreachable', 'needs_attention') THEN 'pending'
+         ELSE reconcile_status END,
+       cycle_no = CASE
+         WHEN reconcile_status IN ('unreachable', 'needs_attention') THEN 0
+         ELSE cycle_no END,
+       unreachable_since = CASE
+         WHEN reconcile_status IN ('unreachable', 'needs_attention') THEN NULL
+         ELSE unreachable_since END,
+       next_eval_at = NOW(),
+       updated_at = NOW()
+     WHERE sn = $1
+       AND reconcile_status IN ('pending', 'in_flight', 'unreachable', 'needs_attention')`,
     [sn]
   );
 };

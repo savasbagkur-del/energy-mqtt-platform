@@ -1,13 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeBackoffMs, decideReconcileAction, planReconcileStep } from "./reconciler.js";
+import {
+  computeBackoffMs,
+  decideReconcileAction,
+  planReconcileStep,
+  planSwitchCycle
+} from "./reconciler.js";
 
 const PLAN_PARAMS = {
   onlineRetryIntervalSec: 7,
-  onlineFailAlarmAttempts: 30,
   offlineMinBackoffSec: 30,
   offlineMaxBackoffSec: 300,
   jitterPct: 0
+};
+
+const CYCLE_PARAMS = {
+  cycleCount: 3,
+  signalsPerCycle: 10,
+  cycleIntervalsSec: [10, 10, 7]
 };
 
 test("decideReconcileAction: reported equals desired -> reconciled (even if offline/in-flight)", () => {
@@ -69,10 +79,9 @@ test("computeBackoffMs: jitter keeps result within [min,max] bounds", () => {
   }
 });
 
-test("planReconcileStep: reconciled -> stop (0ms, no alarm)", () => {
+test("planReconcileStep: reconciled -> stop (0ms)", () => {
   const p = planReconcileStep({ action: "reconciled", attemptCount: 5, ...PLAN_PARAMS });
   assert.equal(p.nextEvalMs, 0);
-  assert.equal(p.emitOnlineFailAlarm, false);
 });
 
 test("planReconcileStep: online actions re-drive at the fast constant cadence (7s)", () => {
@@ -80,26 +89,40 @@ test("planReconcileStep: online actions re-drive at the fast constant cadence (7
   const wait = planReconcileStep({ action: "wait_in_flight", attemptCount: 12, ...PLAN_PARAMS });
   assert.equal(issue.nextEvalMs, 7_000);
   assert.equal(wait.nextEvalMs, 7_000);
-  assert.equal(wait.emitOnlineFailAlarm, false);
 });
 
-test("planReconcileStep: online-fail alarm fires exactly once on the threshold attempt", () => {
-  // attemptCount is BEFORE the pass; issue makes it attemptCount+1.
-  const before = planReconcileStep({ action: "issue_command", attemptCount: 28, ...PLAN_PARAMS });
-  const atThreshold = planReconcileStep({ action: "issue_command", attemptCount: 29, ...PLAN_PARAMS }); // -> 30
-  const after = planReconcileStep({ action: "issue_command", attemptCount: 30, ...PLAN_PARAMS }); // -> 31
-  assert.equal(before.emitOnlineFailAlarm, false);
-  assert.equal(atThreshold.emitOnlineFailAlarm, true);
-  assert.equal(after.emitOnlineFailAlarm, false, "must not refire after the threshold");
-});
-
-test("planReconcileStep: unreachable (offline) uses capped exponential backoff, never alarms", () => {
+test("planReconcileStep: unreachable (offline) uses capped exponential backoff", () => {
   const a1 = planReconcileStep({ action: "unreachable", attemptCount: 0, ...PLAN_PARAMS }); // attempt 1 -> min
   const a3 = planReconcileStep({ action: "unreachable", attemptCount: 2, ...PLAN_PARAMS }); // attempt 3 -> 4*min
   const a9 = planReconcileStep({ action: "unreachable", attemptCount: 8, ...PLAN_PARAMS }); // clamp to max
   assert.equal(a1.nextEvalMs, 30_000);
   assert.equal(a3.nextEvalMs, 120_000);
   assert.equal(a9.nextEvalMs, 300_000);
-  assert.equal(a1.emitOnlineFailAlarm, false);
-  assert.equal(a9.emitOnlineFailAlarm, false);
+});
+
+test("planSwitchCycle: issues cycles 1..3 with per-cycle interval + bounded delivery window", () => {
+  const c1 = planSwitchCycle({ currentCycleNo: 0, ...CYCLE_PARAMS });
+  const c2 = planSwitchCycle({ currentCycleNo: 1, ...CYCLE_PARAMS });
+  const c3 = planSwitchCycle({ currentCycleNo: 2, ...CYCLE_PARAMS });
+  assert.equal(c1.kind, "issue");
+  assert.deepEqual([c1.cycleNo, c2.cycleNo, c3.cycleNo], [1, 2, 3]);
+  // intervals [10,10,7] => windows [100,100,70]
+  assert.deepEqual([c1.intervalSec, c2.intervalSec, c3.intervalSec], [10, 10, 7]);
+  assert.deepEqual([c1.deliveryWindowSec, c2.deliveryWindowSec, c3.deliveryWindowSec], [100, 100, 70]);
+  // ack+retry ≈ interval so intra-command republish lands ~every intervalSec
+  assert.equal(c1.ackTimeoutSec + c1.retryIntervalSec, 10);
+  assert.equal(c3.ackTimeoutSec + c3.retryIntervalSec, 7);
+});
+
+test("planSwitchCycle: after cycleCount cycles -> exhausted (caller raises confirmation-timeout)", () => {
+  const after = planSwitchCycle({ currentCycleNo: 3, ...CYCLE_PARAMS });
+  assert.equal(after.kind, "exhausted");
+});
+
+test("planSwitchCycle: interval array overflow reuses the last interval", () => {
+  const params = { cycleCount: 5, signalsPerCycle: 10, cycleIntervalsSec: [10, 10, 7] };
+  const c4 = planSwitchCycle({ currentCycleNo: 3, ...params });
+  const c5 = planSwitchCycle({ currentCycleNo: 4, ...params });
+  assert.equal(c4.intervalSec, 7); // reuse last
+  assert.equal(c5.intervalSec, 7);
 });

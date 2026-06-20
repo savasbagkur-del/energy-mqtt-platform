@@ -1,13 +1,17 @@
 import { generateCommandMsgid, type Logger } from "@communication/core";
 import {
+  ALARM_COMMAND_CONFIRMATION_TIMEOUT,
   addCommandEvent,
   claimDueDesiredStates,
+  clearAlarms,
   createCommand,
   getActiveSwitchCommandForDevice,
   getEffectivePolicyForDevice,
   markDesiredInFlight,
+  markDesiredNeedsAttention,
   markDesiredReconciled,
   markDesiredUnreachable,
+  raiseAlarm,
   resolveDeviceOnline,
   type CommandRow,
   type DeviceDesiredStateRow,
@@ -26,10 +30,14 @@ export interface ReconcilerConfig {
    * this is the timer-fallback cadence + how fast we re-issue once a command goes terminal.
    */
   onlineRetryIntervalSec: number;
-  /** After this many attempts while ONLINE without reconciling, raise the "not actuating" alarm. */
-  onlineFailAlarmAttempts: number;
   /** When false, staying offline raises no alarm (offline is "expected"); desired state is kept. */
   offlineAlarmEnabled: boolean;
+  /** Bounded retry: number of cycles to attempt while online before needs_attention + alarm. */
+  cycleCount: number;
+  /** Signals (republishes) per cycle — drives the per-cycle delivery window. */
+  signalsPerCycle: number;
+  /** Per-cycle signal interval (sec). Overflow cycles reuse the last value. e.g. [10,10,7]. */
+  cycleIntervalsSec: number[];
 }
 
 export interface ReconcilerDeps {
@@ -40,8 +48,11 @@ export interface ReconcilerDeps {
   config: ReconcilerConfig;
   /** Optional hook fired when a desired state has been unreachable past its alarm threshold. */
   onUnreachableAlarm?: (info: { sn: string; desired: number; unreachableForSec: number }) => void;
-  /** Fired once when an ONLINE device has failed to actuate after onlineFailAlarmAttempts tries. */
-  onOnlineFailAlarm?: (info: { sn: string; desired: number; attempts: number }) => void;
+  /**
+   * Fired once when an ONLINE device exhausts all command cycles without confirming the new state
+   * (COMMAND_CONFIRMATION_TIMEOUT). The desired state is kept (needs_attention) for later retry.
+   */
+  onCommandConfirmationTimeout?: (info: { sn: string; desired: number; cycles: number }) => void;
 }
 
 export type ReconcileAction = "reconciled" | "unreachable" | "wait_in_flight" | "issue_command";
@@ -89,25 +100,21 @@ export const computeBackoffMs = (
 export interface ReconcileStepPlan {
   /** Milliseconds until the reconciler should look at this row again. */
   nextEvalMs: number;
-  /** True exactly on the attempt that crosses the online-fail threshold (fires the alarm once). */
-  emitOnlineFailAlarm: boolean;
 }
 
 /**
- * Pure timing/alarm policy for one reconcile pass. Kept separate from the DB orchestration so the
- * "fast online cadence + alarm after N online attempts + offline backoff" rules are unit-testable.
+ * Pure timing policy for one reconcile pass. Kept separate from the DB orchestration so the
+ * "fast online cadence vs. offline backoff" rule is unit-testable.
  *
  *  - online actions (issue_command / wait_in_flight): near-constant fast cadence so a reachable
- *    device is re-driven promptly (the operator-approved 7s default).
+ *    device is re-driven promptly (operator-approved 7s default) and confirmation is caught fast.
  *  - unreachable (offline): capped exponential backoff (cheap polling; delivery happens on wake).
- *  - issue_command crossing `onlineFailAlarmAttempts` raises the one-shot "not actuating" alarm.
  */
 export const planReconcileStep = (input: {
   action: ReconcileAction;
-  /** attempt_count BEFORE this pass (issue_command will make it attemptCount + 1). */
+  /** attempt_count BEFORE this pass. */
   attemptCount: number;
   onlineRetryIntervalSec: number;
-  onlineFailAlarmAttempts: number;
   offlineMinBackoffSec: number;
   offlineMaxBackoffSec: number;
   jitterPct: number;
@@ -115,7 +122,7 @@ export const planReconcileStep = (input: {
   const onlineMs = Math.max(1, input.onlineRetryIntervalSec) * 1000;
   switch (input.action) {
     case "reconciled":
-      return { nextEvalMs: 0, emitOnlineFailAlarm: false };
+      return { nextEvalMs: 0 };
     case "unreachable":
       return {
         nextEvalMs: computeBackoffMs(
@@ -123,19 +130,67 @@ export const planReconcileStep = (input: {
           input.offlineMinBackoffSec,
           input.offlineMaxBackoffSec,
           input.jitterPct
-        ),
-        emitOnlineFailAlarm: false
+        )
       };
     case "wait_in_flight":
-      return { nextEvalMs: onlineMs, emitOnlineFailAlarm: false };
     case "issue_command":
-      return {
-        nextEvalMs: onlineMs,
-        emitOnlineFailAlarm: input.attemptCount + 1 === input.onlineFailAlarmAttempts
-      };
     default:
-      return { nextEvalMs: onlineMs, emitOnlineFailAlarm: false };
+      return { nextEvalMs: onlineMs };
   }
+};
+
+export interface SwitchCyclePlan {
+  /** "issue" → run this cycle; "exhausted" → all cycles spent without confirmation. */
+  kind: "issue" | "exhausted";
+  /** 1-based cycle index to issue (valid when kind === "issue"). */
+  cycleNo: number;
+  intervalSec: number;
+  signalsPerCycle: number;
+  /** Bounded delivery window for the cycle command = intervalSec * signalsPerCycle. */
+  deliveryWindowSec: number;
+  /** Per-command timing so intra-command republish spacing ≈ intervalSec (ack + retry ≈ interval). */
+  ackTimeoutSec: number;
+  retryIntervalSec: number;
+}
+
+/**
+ * Pure bounded-cycle planner for a switch reconcile. Each cycle is one issued command that
+ * republishes `signalsPerCycle` times across a window of `intervalSec * signalsPerCycle` seconds.
+ * After `cycleCount` cycles the budget is exhausted (→ caller raises COMMAND_CONFIRMATION_TIMEOUT
+ * and parks the desired state in needs_attention; it is NOT dropped).
+ */
+export const planSwitchCycle = (input: {
+  /** cycle_no currently recorded on the desired state (0 = none issued yet). */
+  currentCycleNo: number;
+  cycleCount: number;
+  signalsPerCycle: number;
+  cycleIntervalsSec: number[];
+}): SwitchCyclePlan => {
+  const cycleCount = Math.max(1, Math.floor(input.cycleCount));
+  const next = input.currentCycleNo + 1;
+  if (next > cycleCount) {
+    return {
+      kind: "exhausted",
+      cycleNo: input.currentCycleNo,
+      intervalSec: 0,
+      signalsPerCycle: 0,
+      deliveryWindowSec: 0,
+      ackTimeoutSec: 0,
+      retryIntervalSec: 0
+    };
+  }
+  const intervals = input.cycleIntervalsSec.length ? input.cycleIntervalsSec : [10];
+  const intervalSec = Math.max(1, Math.floor(intervals[Math.min(next - 1, intervals.length - 1)] ?? 10));
+  const signals = Math.max(1, Math.floor(input.signalsPerCycle));
+  return {
+    kind: "issue",
+    cycleNo: next,
+    intervalSec,
+    signalsPerCycle: signals,
+    deliveryWindowSec: intervalSec * signals,
+    ackTimeoutSec: Math.max(1, Math.ceil(intervalSec / 2)),
+    retryIntervalSec: Math.max(1, Math.floor(intervalSec / 2))
+  };
 };
 
 const readDesiredSwitch = (row: DeviceDesiredStateRow): number | null => {
@@ -167,7 +222,8 @@ const policyBackoff = (
 const createReconcileSwitchCommand = async (
   pool: Pool,
   row: DeviceDesiredStateRow,
-  desired: number
+  desired: number,
+  cycle: SwitchCyclePlan
 ): Promise<CommandRow> => {
   const productKey = row.product_key ?? "";
   const policyView = await getEffectivePolicyForDevice(pool, {
@@ -175,8 +231,18 @@ const createReconcileSwitchCommand = async (
     productKey: row.product_key,
     commandType: desired === 0 ? "force_switch_0" : "force_switch_1"
   });
-  const profile = policyView.profile;
-  const ttlSec = profile.command_ttl_sec ?? 300;
+  // Per-cycle timing override: the command republishes ~signalsPerCycle times at ~intervalSec
+  // spacing across a bounded delivery window, then goes delivery_timeout → next cycle.
+  const profile = {
+    ...policyView.profile,
+    ack_timeout_sec: cycle.ackTimeoutSec,
+    retry_interval_sec: cycle.retryIntervalSec,
+    ack_retry_min_delay_sec: 1,
+    delivery_window_sec: cycle.deliveryWindowSec,
+    max_attempts: Math.max(policyView.profile.max_attempts ?? 0, cycle.signalsPerCycle + 1)
+  };
+  // Command must outlive its delivery window so it is not expired pre-publish.
+  const ttlSec = Math.max(profile.command_ttl_sec ?? 300, cycle.deliveryWindowSec + 30);
   return createCommand(pool, {
     sn: row.sn,
     productKey,
@@ -187,11 +253,32 @@ const createReconcileSwitchCommand = async (
       commandType: desired === 0 ? "force_switch_0" : "force_switch_1",
       switchTarget: desired,
       reason: "reconcile",
-      desiredStateId: row.id
+      desiredStateId: row.id,
+      cycleNo: cycle.cycleNo
     },
     expiresAt: new Date(Date.now() + ttlSec * 1000),
     policySnapshot: profile
   });
+};
+
+/** Resolve cycle config from the effective policy profile, falling back to reconciler config. */
+const resolveCycleConfig = (
+  policy: Record<string, unknown>,
+  cfg: ReconcilerConfig
+): { cycleCount: number; signalsPerCycle: number; cycleIntervalsSec: number[] } => {
+  const intRaw = policy["command_cycle_intervals_sec"];
+  const intervals = Array.isArray(intRaw)
+    ? intRaw.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  const num = (k: string, fallback: number): number => {
+    const raw = policy[k];
+    return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : fallback;
+  };
+  return {
+    cycleCount: num("command_cycle_count", cfg.cycleCount),
+    signalsPerCycle: num("command_signals_per_cycle", cfg.signalsPerCycle),
+    cycleIntervalsSec: intervals.length ? intervals : cfg.cycleIntervalsSec
+  };
 };
 
 /**
@@ -241,7 +328,6 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
         action,
         attemptCount: row.attempt_count,
         onlineRetryIntervalSec: config.onlineRetryIntervalSec,
-        onlineFailAlarmAttempts: config.onlineFailAlarmAttempts,
         offlineMinBackoffSec: minSec,
         offlineMaxBackoffSec: maxSec,
         jitterPct: config.jitterPct
@@ -249,6 +335,8 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
 
       if (action === "reconciled") {
         await markDesiredReconciled(pool, row.id, { switch: reported });
+        // Confirmed at last: clear any open confirmation-timeout alarm for this device.
+        await clearAlarms(pool, row.sn, ALARM_COMMAND_CONFIRMATION_TIMEOUT);
         log.info("reconcile_done", { id: row.id, sn: row.sn, desired, reported });
         continue;
       }
@@ -298,47 +386,76 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
         continue;
       }
 
-      // issue_command (device is online + state is wrong + nothing in flight)
-      const command = await createReconcileSwitchCommand(pool, row, desired);
+      // issue_command (device is online + state is wrong + nothing in flight): drive the next cycle.
+      const cycleCfg = resolveCycleConfig(
+        policyView.profile as unknown as Record<string, unknown>,
+        config
+      );
+      const cycle = planSwitchCycle({
+        currentCycleNo: row.cycle_no,
+        cycleCount: cycleCfg.cycleCount,
+        signalsPerCycle: cycleCfg.signalsPerCycle,
+        cycleIntervalsSec: cycleCfg.cycleIntervalsSec
+      });
+
+      if (cycle.kind === "exhausted") {
+        // Online but never confirmed the new state across all cycles → COMMAND_CONFIRMATION_TIMEOUT.
+        // Keep the desired state (needs_attention); it resumes on next wake or operator retry.
+        await markDesiredNeedsAttention(pool, row.id);
+        await raiseAlarm(pool, {
+          sn: row.sn,
+          alarmType: ALARM_COMMAND_CONFIRMATION_TIMEOUT,
+          severity: "warning",
+          commandId: row.last_command_id,
+          desiredStateId: row.id,
+          message: "Cihaza aç/kapat komutu gönderildi ancak cihazdan durum doğrulaması alınamadı.",
+          fields: { desired, cycles: cycleCfg.cycleCount, signalsPerCycle: cycleCfg.signalsPerCycle }
+        });
+        if (row.last_command_id) {
+          await addCommandEvent(pool, row.last_command_id, "command_confirmation_timeout", {
+            sn: row.sn,
+            desired,
+            cycles: cycleCfg.cycleCount
+          });
+        }
+        deps.onCommandConfirmationTimeout?.({ sn: row.sn, desired, cycles: cycleCfg.cycleCount });
+        log.warn("reconcile_command_confirmation_timeout", {
+          id: row.id,
+          sn: row.sn,
+          desired,
+          cycles: cycleCfg.cycleCount
+        });
+        continue;
+      }
+
+      const command = await createReconcileSwitchCommand(pool, row, desired, cycle);
       const nextAttempt = row.attempt_count + 1;
-      // Online retries run at a near-constant fast cadence (not 30→300s backoff): the device is
-      // reachable, so we want to re-drive promptly each time a command goes terminal.
-      const nextEvalMs = plan.nextEvalMs;
+      // Re-check at the fast online cadence while this cycle's command runs; on terminal (no
+      // confirmation) the next pass issues the following cycle until the budget is exhausted.
       await markDesiredInFlight(pool, row.id, {
         commandId: command.id,
         incrementAttempt: true,
-        nextEvalAt: new Date(Date.now() + nextEvalMs)
+        cycleNo: cycle.cycleNo,
+        nextEvalAt: new Date(Date.now() + plan.nextEvalMs)
       });
       await addCommandEvent(pool, command.id, "reconcile_command_issued", {
         sn: row.sn,
         desired,
         desiredStateId: row.id,
-        attempt: nextAttempt
+        attempt: nextAttempt,
+        cycle: cycle.cycleNo,
+        signalsPerCycle: cycle.signalsPerCycle,
+        intervalSec: cycle.intervalSec,
+        deliveryWindowSec: cycle.deliveryWindowSec
       });
       log.info("reconcile_command_issued", {
         id: row.id,
         sn: row.sn,
         desired,
         commandId: command.id,
-        attempt: nextAttempt
+        attempt: nextAttempt,
+        cycle: cycle.cycleNo
       });
-
-      // Online but still not actuating after the configured number of attempts → fault alarm.
-      // Fires exactly once (on the threshold attempt); the irade is NOT dropped — we keep trying.
-      if (plan.emitOnlineFailAlarm) {
-        await addCommandEvent(pool, command.id, "desired_state_online_not_actuating_alarm", {
-          sn: row.sn,
-          desired,
-          attempts: nextAttempt
-        });
-        deps.onOnlineFailAlarm?.({ sn: row.sn, desired, attempts: nextAttempt });
-        log.warn("reconcile_online_not_actuating_alarm", {
-          id: row.id,
-          sn: row.sn,
-          desired,
-          attempts: nextAttempt
-        });
-      }
     } catch (error) {
       log.error("reconcile_row_failed", {
         id: row.id,
