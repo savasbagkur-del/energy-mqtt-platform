@@ -342,7 +342,7 @@ select { cursor: pointer; }
 .proj-card.clickable { cursor: pointer; }
 .proj-card > * { position: relative; z-index: 1; }
 /* soft colored bloom in the corner for depth (the rounded glow) */
-.proj-card::before { content: ""; position: absolute; top: -42px; right: -34px; width: 120px; height: 120px; border-radius: 50%; background: var(--brand-soft); opacity: .9; pointer-events: none; z-index: 0; }
+.proj-card::before { content: ""; position: absolute; top: -34px; right: -30px; width: 78px; height: 78px; border-radius: 50%; background: var(--brand-soft); opacity: .7; pointer-events: none; z-index: 0; }
 .proj-card.has-alarm::before { background: var(--bad-soft); }
 .proj-card::after { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--brand-grad); opacity: .9; z-index: 1; }
 .proj-card.has-alarm::after { background: linear-gradient(90deg, var(--bad), var(--warn)); }
