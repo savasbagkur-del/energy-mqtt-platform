@@ -50,6 +50,7 @@ import {
   setDeviceLifecycle,
   getFleetOverview,
   getProjectOverview,
+  getModelOverview,
   listFleetDevices,
   getDeviceTelemetry,
   getTelemetrySeries,
@@ -1702,6 +1703,17 @@ app.get("/fleet/projects", async (req, res) => {
   } catch (error) {
     console.error("[api] failed to build project overview", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_build_project_overview" });
+  }
+});
+
+// Device-type breakdown (count per model) for the device-mix donut.
+app.get("/fleet/models", async (_req, res) => {
+  try {
+    const items = await getModelOverview(dbPool);
+    res.status(200).json({ count: items.length, items });
+  } catch (error) {
+    console.error("[api] failed to build model overview", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_build_model_overview" });
   }
 });
 

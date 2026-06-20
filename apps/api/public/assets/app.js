@@ -352,6 +352,29 @@
     </svg>`;
   }
 
+  // Two concentric rings sharing one total: inner = status, outer = device type.
+  function donut2(innerSegs, outerSegs, total) {
+    const cx = 64, cy = 64;
+    const ring = (segs, r, w) => {
+      const c = 2 * Math.PI * r;
+      const sum = total || segs.reduce((a, s) => a + (s.value || 0), 0) || 1;
+      let off = 0, arcs = "";
+      segs.forEach((s) => {
+        const len = ((s.value || 0) / sum) * c;
+        if (len <= 0) return;
+        arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${w}" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+        off += len;
+      });
+      return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--panel-3)" stroke-width="${w}"/>${arcs}`;
+    };
+    return `<svg viewBox="0 0 128 128" width="140" height="140">
+      ${ring(outerSegs, 54, 13)}
+      ${ring(innerSegs, 34, 13)}
+      <text x="${cx}" y="${cy - 1}" text-anchor="middle" fill="var(--txt)" font-size="24" font-weight="800">${nf(total)}</text>
+      <text x="${cx}" y="${cy + 15}" text-anchor="middle" fill="var(--muted)" font-size="10.5">cihaz</text>
+    </svg>`;
+  }
+
   function signalBars(rssi) {
     let lvl = 0, label = "—";
     if (rssi != null && !Number.isNaN(Number(rssi))) {
@@ -470,15 +493,16 @@
   // ================================================================ OVERVIEW
   async function renderOverview(silent) {
     if (!silent) view.innerHTML = `<div class="loading">Filo özeti yükleniyor…</div>`;
-    let ov, offline, alarms, owing, cmdAlarms, projects;
+    let ov, offline, alarms, owing, cmdAlarms, projects, models;
     try {
-      [ov, offline, alarms, owing, cmdAlarms, projects] = await Promise.all([
+      [ov, offline, alarms, owing, cmdAlarms, projects, models] = await Promise.all([
         api("GET", `/fleet/overview?window=${state.settings.onlineWindowSec}`),
         api("GET", `/fleet/devices?online=false&limit=6&window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?alarm=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?owing=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/alarms?status=open&limit=6`).catch(() => ({ items: [] })),
-        api("GET", `/fleet/projects?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] }))
+        api("GET", `/fleet/projects?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
+        api("GET", `/fleet/models`).catch(() => ({ items: [] }))
       ]);
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
     state.lastOverview = ov;
@@ -551,6 +575,31 @@
     ];
     const legend = segs.map((s) => `<div class="dl"><i style="background:${s.color}"></i>${s.label}<b>${nf(s.value)}</b></div>`).join("");
 
+    // Device-mix donut: inner ring = status, outer ring = device type (model).
+    const MODEL_COLORS = ["#3FA7A0", "#546E7A", "#6CA8D6", "#7FB77E", "#E0A84E", "#C94B4B", "#8E7CC3", "#5C8A8A", "#B5894E"];
+    const statusSegs = [
+      { label: "Çevrim İçi", value: ov.online, color: "var(--on)" },
+      { label: "Karantina", value: ov.quarantined, color: "var(--warn)" },
+      { label: "Çevrim Dışı", value: ov.offline, color: "var(--off)" }
+    ];
+    const modelSegs = ((models && models.items) || []).map((m, i) => ({
+      label: m.model || "Bilinmiyor", value: m.total, color: MODEL_COLORS[i % MODEL_COLORS.length]
+    }));
+    const dlRow = (s) => `<div class="dl"><i style="background:${s.color}"></i>${esc(s.label)}<b>${nf(s.value)}</b></div>`;
+    const mixHtml = `
+      <div class="panel">
+        <div class="panel-head"><h2>Cihaz Dağılımı</h2><div class="panel-actions"><span class="pill"><span class="pdot"></span>iç: durum · dış: tip</span></div></div>
+        <div class="panel-pad">
+          <div class="mix-wrap">
+            ${donut2(statusSegs, modelSegs, ov.total)}
+            <div class="mix-legends">
+              <div class="mix-col"><div class="dl-group">Durum (iç halka)</div>${statusSegs.map(dlRow).join("")}</div>
+              <div class="mix-col"><div class="dl-group">Cihaz Tipi (dış halka)</div>${modelSegs.length ? modelSegs.map(dlRow).join("") : `<div class="dl" style="color:var(--muted)">Model bilgisi yok</div>`}</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
     view.innerHTML = `
       <div class="page-head">
         <div><h1>Genel Bakış</h1><div class="sub">Filo komuta merkezi · ${fmtInterval(state.settings.refreshMs)} yenileme (komut sırasında otomatik hızlanır)</div></div>
@@ -575,6 +624,7 @@
           <div>${attHtml}</div>
         </div>
       </div>
+      ${mixHtml}
       ${projHtml}`;
 
     $$("[data-sn]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`)));

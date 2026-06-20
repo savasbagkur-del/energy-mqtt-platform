@@ -548,6 +548,15 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .donut-legend .dl i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
 .donut-legend .dl b { margin-left: auto; font-variant-numeric: tabular-nums; }
 
+/* device-mix donut (inner status + outer model) */
+.mix-wrap { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+.mix-legends { display: flex; gap: 14px 38px; flex-wrap: wrap; flex: 1; min-width: 200px; }
+.mix-col { display: flex; flex-direction: column; gap: 8px; min-width: 150px; }
+.mix-col .dl { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.mix-col .dl i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.mix-col .dl b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.dl-group { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
+
 /* ============================================================ Auth: login + user chip */
 .login-screen { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 22px;
   background: radial-gradient(1200px 700px at 70% -10%, rgba(63,167,160,.12), transparent 60%), var(--bg); }

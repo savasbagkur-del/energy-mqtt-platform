@@ -147,6 +147,29 @@ export const getProjectOverview = async (
   });
 };
 
+export interface ModelOverviewRow {
+  /** device model (e.g. ADL200, ADL300); null bucket = model not yet derived. */
+  model: string | null;
+  total: number;
+}
+
+/**
+ * Fleet device-type breakdown (count per model, all registry states) for the device-mix
+ * donut. Single grouped query so it scales with the fleet, not the browser.
+ */
+export const getModelOverview = async (pool: Pool): Promise<ModelOverviewRow[]> => {
+  const res = await pool.query(
+    `SELECT model, COUNT(*) AS total
+     FROM devices
+     GROUP BY model
+     ORDER BY COUNT(*) DESC, model NULLS LAST`
+  );
+  return res.rows.map((r) => ({
+    model: (r.model as string | null) ?? null,
+    total: int(r.total)
+  }));
+};
+
 export interface FleetDeviceRow {
   sn: string;
   label: string | null;
