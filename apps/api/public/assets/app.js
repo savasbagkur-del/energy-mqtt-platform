@@ -575,7 +575,7 @@
         <div class="proj-head">
           <span class="proj-badge">${esc(initials)}</span>
           <span class="proj-name" title="${esc(name)}">${esc(name)}</span>
-          ${p.openAlarms ? `<span class="pill bad"><span class="pdot"></span>${nf(p.openAlarms)}</span>` : `<span class="pill on"><span class="pdot"></span>stabil</span>`}
+          ${p.openAlarms ? `<span class="pill bad"><span class="pdot"></span>${nf(p.openAlarms)}</span>` : ""}
         </div>
         <div class="proj-stats">
           <div class="ps"><div class="ps-v">${nf(p.total)}</div><div class="ps-l">Sayaç</div></div>
