@@ -2,6 +2,7 @@ import type { NormalizedIncomingMessage } from "@communication/contracts";
 import type { Pool } from "pg";
 import { resolveSwitchState } from "./switch-decode.js";
 import { recordReconnectObservation } from "./device-cadence.js";
+import { getCachedTelemetryMode } from "./telemetry-mode-cache.js";
 
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -639,14 +640,9 @@ export const persistTelemetryFoundation = async (
   const observedAt = deviceSampleAt ?? deviceSentAt ?? receivedAt;
 
   // Resolve the device telemetry mode so we can apply its profile.
-  // (PK lookup; returns null for unseen SNs => legacy "store everything".)
-  const modeResult = await pool.query<{ telemetry_mode: string | null }>(
-    `SELECT telemetry_mode FROM devices WHERE sn = $1`,
-    [sn]
-  );
-  const rawMode = modeResult.rows[0]?.telemetry_mode ?? null;
-  const telemetryMode: TelemetryMode =
-    rawMode === "consumption" || rawMode === "analysis" ? rawMode : null;
+  // Cached per-SN (invalidated on registry writes) so we don't pay a DB read on every message;
+  // returns null for unseen SNs => legacy "store everything".
+  const telemetryMode: TelemetryMode = await getCachedTelemetryMode(pool, sn);
   const sampleValues = applySampleProfile(mapped, telemetryMode);
 
   await pool.query(

@@ -16,7 +16,7 @@
   const SETTINGS_REV = 1;
   // While a switch/refresh command is mid-flight we poll fast so the operator sees the
   // "opened / closed" confirmation promptly; otherwise we stay on the slow idle cadence.
-  const FAST_REFRESH_MS = 3000;
+  const FAST_REFRESH_MS = 10000;
   const defaultSettings = { refreshMs: 300000, onlineWindowSec: 360, theme: "light", offlineAlarmMin: 15, themeRev: THEME_REV, settingsRev: SETTINGS_REV };
 
   function loadUser() {

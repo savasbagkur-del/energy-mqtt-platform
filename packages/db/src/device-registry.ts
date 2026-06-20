@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import type { CustomerRow, DeviceRegistryRow, PropertyTypeRow } from "./types.js";
+import { invalidateTelemetryModeCache } from "./telemetry-mode-cache.js";
 
 // ---- property types -------------------------------------------------------
 
@@ -151,6 +152,8 @@ export const registerDevice = async (
       input.telemetryMode ?? null
     ]
   );
+  // Mode may have just changed; drop the cached value so the telemetry path re-reads it.
+  invalidateTelemetryModeCache(input.sn);
 };
 
 export interface BulkRegisterResult {
