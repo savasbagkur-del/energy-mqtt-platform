@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="dark light" />
 <title>Volt4Amper — Enerji İzleme Komuta Merkezi</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%2322d3ee' d='M18 2 6 18h8l-2 12 14-18h-9z'/%3E%3C/svg%3E" />
-<link rel="stylesheet" href="assets/app.css?v=14" />
+<link rel="stylesheet" href="assets/app.css?v=15" />
 </head>
 <body>
 <div id="app">
@@ -37,7 +37,11 @@
   <!-- Main -->
   <div class="main">
     <header class="topbar">
-      <button class="icon-btn menu-toggle" id="menuToggle" title="Menü">☰</button>
+      <button class="icon-btn menu-toggle" id="menuToggle" title="Menü" aria-label="Menü" aria-expanded="false">☰</button>
+      <div class="topbar-brand">
+        <div class="brand-mark"><svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M18 2 6 18h8l-2 12 14-18h-9z"/></svg></div>
+        <strong>Volt4Amper</strong>
+      </div>
       <div class="searchbox">
         <svg viewBox="0 0 24 24" class="ic"><path d="m21 21-4.3-4.3M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z"/></svg>
         <input id="globalSearch" type="search" placeholder="SN, etiket, abone, müşteri veya şehir ara…" autocomplete="off" />
@@ -56,6 +60,7 @@
     </header>
     <main class="view" id="view"><div class="loading">Yükleniyor…</div></main>
   </div>
+  <div class="nav-scrim" id="navScrim"></div>
 </div>
 
 <!-- Login screen (full-screen gate; shown until a valid session exists) -->
@@ -83,6 +88,6 @@
 <div id="modalMount"></div>
 <div class="toasts" id="toasts"></div>
 
-<script src="assets/app.js?v=15" defer></script>
+<script src="assets/app.js?v=16" defer></script>
 </body>
 </html>

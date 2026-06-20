@@ -148,15 +148,24 @@ a { color: var(--brand-text); text-decoration: none; }
 *::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
 
 /* ============================================================ Layout */
-#app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; }
+/* Full-bleed content: the nav is an off-canvas drawer on every viewport, toggled from the topbar. */
+#app { display: block; min-height: 100vh; }
 
 .sidebar {
-  position: sticky; top: 0; height: 100vh;
+  position: fixed; left: 0; top: 0; height: 100vh; width: 276px;
   background: linear-gradient(180deg, var(--bg-2), var(--bg));
   border-right: 1px solid var(--line);
+  border-radius: 0 18px 18px 0;
   display: flex; flex-direction: column; gap: 6px; padding: 16px 12px;
-  z-index: 40;
+  z-index: 70;
+  transform: translateX(-100%);
+  transition: transform .26s cubic-bezier(.4, 0, .2, 1), box-shadow .26s ease;
 }
+.sidebar.open { transform: none; box-shadow: 26px 0 70px rgba(20, 30, 40, .20); }
+
+/* dim + blur the page behind the open drawer */
+.nav-scrim { position: fixed; inset: 0; background: rgba(28, 38, 48, .48); backdrop-filter: blur(3px); z-index: 60; opacity: 0; visibility: hidden; transition: opacity .24s ease, visibility .24s ease; }
+.nav-scrim.show { opacity: 1; visibility: visible; }
 .brand { display: flex; align-items: center; gap: 12px; padding: 6px 8px 16px; }
 .brand-mark { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: var(--brand-ink); background: var(--brand-grad); box-shadow: 0 6px 18px rgba(84,110,122,.28); }
 .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
@@ -170,9 +179,10 @@ a { color: var(--brand-text); text-decoration: none; }
 }
 .nav-item .ic { width: 19px; height: 19px; flex: none; }
 .nav-item:hover { background: var(--panel); color: var(--txt); }
-.nav-item.active { background: var(--panel-2); color: var(--txt); box-shadow: inset 0 0 0 1px var(--line); }
-.nav-item.active::before { content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 3px; background: var(--brand-grad); }
+.nav-item.active { background: var(--brand-grad); color: var(--brand-ink); font-weight: 600; box-shadow: 0 8px 20px rgba(84, 110, 122, .30); }
+.nav-item.active .ic { color: var(--brand-ink); }
 .nav-badge { margin-left: auto; background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
+.nav-item.active .nav-badge { background: rgba(255, 255, 255, .92); color: var(--bad-text); }
 
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding: 8px; }
 .conn-chip { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
@@ -191,7 +201,12 @@ a { color: var(--brand-text); text-decoration: none; }
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
 }
-.menu-toggle { display: none; }
+.menu-toggle { display: grid; font-size: 18px; }
+.menu-toggle.active { background: var(--brand-grad); color: var(--brand-ink); border-color: transparent; }
+.topbar-brand { display: flex; align-items: center; gap: 10px; padding-right: 4px; }
+.topbar-brand .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
+.topbar-brand strong { font-size: 15px; letter-spacing: .2px; white-space: nowrap; }
+@media (max-width: 720px) { .topbar-brand strong { display: none; } }
 .searchbox { display: flex; align-items: center; gap: 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; height: 38px; width: min(440px, 42vw); }
 .searchbox .ic { width: 17px; height: 17px; color: var(--muted); flex: none; }
 .searchbox input { border: 0; background: transparent; color: var(--txt); width: 100%; font-size: 14px; outline: none; }
@@ -531,11 +546,6 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* responsive */
 @media (max-width: 900px) {
-  :root { --sidebar-w: 0px; }
-  #app { grid-template-columns: 1fr; }
-  .sidebar { position: fixed; left: 0; top: 0; width: 248px; transform: translateX(-100%); transition: transform .22s; }
-  .sidebar.open { transform: none; }
-  .menu-toggle { display: grid; }
   .searchbox { width: 100%; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
 }

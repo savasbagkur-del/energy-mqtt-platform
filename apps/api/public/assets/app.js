@@ -1539,13 +1539,21 @@
   }, 350));
   $("#globalSearch").addEventListener("keydown", (e) => { if (e.key === "Enter" && state.route.name !== "devices") navigate("#/devices"); });
 
-  // -------- mobile sidebar
+  // -------- off-canvas nav drawer (toggled from the topbar on every viewport)
   const sidebar = $("#sidebar");
-  function closeSidebar() { sidebar.classList.remove("open"); }
-  $("#menuToggle").addEventListener("click", () => sidebar.classList.toggle("open"));
-  document.addEventListener("click", (e) => {
-    if (window.innerWidth <= 900 && sidebar.classList.contains("open") && !sidebar.contains(e.target) && !e.target.closest("#menuToggle")) closeSidebar();
-  });
+  const navScrim = $("#navScrim");
+  const menuToggle = $("#menuToggle");
+  function setMenu(open) {
+    sidebar.classList.toggle("open", open);
+    navScrim.classList.toggle("show", open);
+    menuToggle.classList.toggle("active", open);
+    menuToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    menuToggle.textContent = open ? "✕" : "☰";
+  }
+  function closeSidebar() { setMenu(false); }
+  menuToggle.addEventListener("click", () => setMenu(!sidebar.classList.contains("open")));
+  navScrim.addEventListener("click", closeSidebar);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSidebar(); });
 
   // -------- session bootstrap
   async function ensureAuth() {
