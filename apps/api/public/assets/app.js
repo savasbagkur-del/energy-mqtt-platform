@@ -354,8 +354,8 @@
 
   // Two concentric rings sharing one total: inner = status, outer = device type.
   function donut2(innerSegs, outerSegs, total) {
-    const cx = 64, cy = 64;
-    const ring = (segs, r, w) => {
+    const cx = 90, cy = 90;
+    const ring = (segs, r, w, ringName) => {
       const c = 2 * Math.PI * r;
       const sum = total || segs.reduce((a, s) => a + (s.value || 0), 0) || 1;
       let off = 0, arcs = "";
@@ -363,17 +363,43 @@
         const len = ((s.value || 0) / sum) * c;
         if (len <= 0) return;
         const p = sum ? Math.round(((s.value || 0) / sum) * 100) : 0;
-        arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${w}" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"><title>${esc(s.label || "")}: ${nf(s.value || 0)} (%${p})</title></circle>`;
+        arcs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" data-label="${esc(s.label || "")}" data-ring="${ringName}" data-value="${esc(nf(s.value || 0))}" data-pct="${p}" data-color="${esc(s.color)}"></circle>`;
         off += len;
       });
       return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--panel-3)" stroke-width="${w}"/>${arcs}`;
     };
-    return `<svg viewBox="0 0 128 128" width="140" height="140">
-      ${ring(outerSegs, 54, 13)}
-      ${ring(innerSegs, 34, 13)}
-      <text x="${cx}" y="${cy - 1}" text-anchor="middle" fill="var(--txt)" font-size="24" font-weight="800">${nf(total)}</text>
-      <text x="${cx}" y="${cy + 15}" text-anchor="middle" fill="var(--muted)" font-size="10.5">cihaz</text>
+    return `<svg class="mix-donut" viewBox="0 0 180 180" width="100%" height="100%" data-total="${esc(nf(total))}" data-label="toplam cihaz" preserveAspectRatio="xMidYMid meet">
+      ${ring(outerSegs, 74, 17, "Cihaz Tipi")}
+      ${ring(innerSegs, 48, 17, "Durum")}
+      <text class="donut-cv" x="${cx}" y="${cy - 2}" text-anchor="middle" fill="var(--txt)" font-size="34" font-weight="800">${nf(total)}</text>
+      <text class="donut-cl" x="${cx}" y="${cy + 17}" text-anchor="middle" fill="var(--muted)" font-size="12">toplam cihaz</text>
     </svg>`;
+  }
+
+  function wireDonut(root) {
+    const svg = root.querySelector(".mix-donut");
+    if (!svg) return;
+    const cv = svg.querySelector(".donut-cv");
+    const cl = svg.querySelector(".donut-cl");
+    const defV = svg.dataset.total;
+    const defL = svg.dataset.label;
+    const segs = Array.from(svg.querySelectorAll(".donut-seg"));
+    const reset = () => {
+      cv.textContent = defV;
+      cv.setAttribute("fill", "var(--txt)");
+      cl.textContent = defL;
+      segs.forEach((s) => s.classList.remove("dim", "hot"));
+    };
+    segs.forEach((seg) => {
+      const on = () => {
+        cv.textContent = seg.dataset.value;
+        cv.setAttribute("fill", seg.dataset.color);
+        cl.textContent = `${seg.dataset.ring}: ${seg.dataset.label} · %${seg.dataset.pct}`;
+        segs.forEach((s) => { s.classList.toggle("hot", s === seg); s.classList.toggle("dim", s !== seg); });
+      };
+      seg.addEventListener("mouseenter", on);
+      seg.addEventListener("mouseleave", reset);
+    });
   }
 
   function signalBars(rssi) {
@@ -595,25 +621,16 @@
     }));
     const pct = (v, t) => (t ? Math.round((v / t) * 100) : 0);
     const dlRow = (s) => `<div class="dl"><i style="background:${s.color}"></i>${esc(s.label)}<b>${nf(s.value)}<span class="dl-pct">%${pct(s.value, ov.total)}</span></b></div>`;
-    const ms = (label, value, unit) => `<div class="ms"><span class="ms-l">${label}</span><span class="ms-v">${value}${unit ? `<small>${unit}</small>` : ""}</span></div>`;
     const mixHtml = `
       <div class="panel">
         <div class="panel-head"><h2>Cihaz Dağılımı</h2><div class="panel-actions"><span class="pill"><span class="pdot"></span>iç: durum · dış: tip</span></div></div>
         <div class="panel-pad">
           <div class="mix-wrap">
-            ${donut2(statusSegs, modelSegs, ov.total)}
+            <div class="mix-donut-wrap">${donut2(statusSegs, modelSegs, ov.total)}</div>
             <div class="mix-legends">
               <div class="mix-col"><div class="dl-group">Durum (iç halka)</div>${statusSegs.map(dlRow).join("")}</div>
               <div class="mix-col"><div class="dl-group">Cihaz Tipi (dış halka)</div>${modelSegs.length ? modelSegs.map(dlRow).join("") : `<div class="dl" style="color:var(--muted)">Model bilgisi yok</div>`}</div>
             </div>
-          </div>
-          <div class="mix-foot">
-            ${ms("Röle Açık", nf(ov.switchOn))}
-            ${ms("Röle Kapalı", nf(ov.switchOff))}
-            ${ms("Anlık Güç", nf(ov.totalActivePowerKw, 2), " kW")}
-            ${ms("Toplam Enerji", nf(ov.totalEnergyKwh, 1), " kWh")}
-            ${ms("Ort. Sinyal", ov.avgRssi != null ? nf(ov.avgRssi, 0) : "—")}
-            ${ms("Borçlu", nf(ov.owing))}
           </div>
         </div>
       </div>`;
@@ -632,6 +649,7 @@
       </div>
       ${projHtml}`;
 
+    wireDonut(view);
     $$("[data-sn]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`)));
     $$("[data-go]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/${el.dataset.go}`)));
     $$("[data-project]", view).forEach((el) => el.addEventListener("click", () => {

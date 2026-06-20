@@ -569,7 +569,13 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .donut-legend .dl b { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 /* device-mix donut (inner status + outer model) */
-.mix-wrap { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+.mix-wrap { display: flex; align-items: center; gap: 30px; flex-wrap: wrap; }
+.mix-donut-wrap { flex: none; width: 230px; height: 230px; display: grid; place-items: center; }
+.mix-donut { display: block; overflow: visible; }
+.donut-seg { cursor: pointer; transition: opacity .18s ease, stroke-width .18s ease; transform-box: fill-box; }
+.donut-seg.dim { opacity: .25; }
+.donut-seg.hot { stroke-width: 21; filter: drop-shadow(0 2px 6px rgba(0,0,0,.28)); }
+.donut-cv, .donut-cl { transition: fill .18s ease; pointer-events: none; }
 .mix-legends { display: flex; gap: 14px 38px; flex-wrap: wrap; flex: 1; min-width: 200px; }
 .mix-col { display: flex; flex-direction: column; gap: 8px; min-width: 150px; }
 .mix-col .dl { display: flex; align-items: center; gap: 9px; font-size: 13px; }
@@ -577,12 +583,6 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .mix-col .dl b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .dl-group { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
 .dl-pct { color: var(--muted); font-weight: 600; font-size: 11px; margin-left: 6px; }
-/* fleet summary strip under the device-mix donut */
-.mix-foot { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
-.mix-foot .ms { flex: 1 1 90px; min-width: 84px; display: flex; flex-direction: column; gap: 4px; padding: 9px 11px; border-radius: 11px; background: color-mix(in srgb, var(--panel-2) 70%, transparent); border: 1px solid var(--line); }
-.mix-foot .ms-l { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
-.mix-foot .ms-v { font-size: 16px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-.mix-foot .ms-v small { font-size: 11px; color: var(--muted); font-weight: 700; }
 
 /* ============================================================ Auth: login + user chip */
 .login-screen { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 22px;
@@ -628,6 +628,7 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
   .view { padding: 18px clamp(12px, 3vw, 22px) 96px; }
   .mix-wrap { justify-content: center; }
   .mix-legends { justify-content: center; }
+  .mix-donut-wrap { width: 200px; height: 200px; }
 }
 @media (max-width: 640px) {
   .topbar { padding: 0 12px; gap: 8px; }
@@ -645,7 +646,7 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
   .nav-item { min-width: 58px; padding: 7px 9px; }
   .nav-item .ic { width: 21px; height: 21px; }
   body.dock-open .view { padding-bottom: 150px; }
-  .mix-foot .ms { flex-basis: calc(50% - 5px); }
+  .mix-donut-wrap { width: 180px; height: 180px; }
 }
 @media (max-width: 380px) {
   .nav-item span:not(.nav-badge) { font-size: 10px; }
