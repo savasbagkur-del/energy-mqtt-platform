@@ -86,6 +86,58 @@ export const computeBackoffMs = (
   return Math.round(clamped * 1000);
 };
 
+export interface ReconcileStepPlan {
+  /** Milliseconds until the reconciler should look at this row again. */
+  nextEvalMs: number;
+  /** True exactly on the attempt that crosses the online-fail threshold (fires the alarm once). */
+  emitOnlineFailAlarm: boolean;
+}
+
+/**
+ * Pure timing/alarm policy for one reconcile pass. Kept separate from the DB orchestration so the
+ * "fast online cadence + alarm after N online attempts + offline backoff" rules are unit-testable.
+ *
+ *  - online actions (issue_command / wait_in_flight): near-constant fast cadence so a reachable
+ *    device is re-driven promptly (the operator-approved 7s default).
+ *  - unreachable (offline): capped exponential backoff (cheap polling; delivery happens on wake).
+ *  - issue_command crossing `onlineFailAlarmAttempts` raises the one-shot "not actuating" alarm.
+ */
+export const planReconcileStep = (input: {
+  action: ReconcileAction;
+  /** attempt_count BEFORE this pass (issue_command will make it attemptCount + 1). */
+  attemptCount: number;
+  onlineRetryIntervalSec: number;
+  onlineFailAlarmAttempts: number;
+  offlineMinBackoffSec: number;
+  offlineMaxBackoffSec: number;
+  jitterPct: number;
+}): ReconcileStepPlan => {
+  const onlineMs = Math.max(1, input.onlineRetryIntervalSec) * 1000;
+  switch (input.action) {
+    case "reconciled":
+      return { nextEvalMs: 0, emitOnlineFailAlarm: false };
+    case "unreachable":
+      return {
+        nextEvalMs: computeBackoffMs(
+          input.attemptCount + 1,
+          input.offlineMinBackoffSec,
+          input.offlineMaxBackoffSec,
+          input.jitterPct
+        ),
+        emitOnlineFailAlarm: false
+      };
+    case "wait_in_flight":
+      return { nextEvalMs: onlineMs, emitOnlineFailAlarm: false };
+    case "issue_command":
+      return {
+        nextEvalMs: onlineMs,
+        emitOnlineFailAlarm: input.attemptCount + 1 === input.onlineFailAlarmAttempts
+      };
+    default:
+      return { nextEvalMs: onlineMs, emitOnlineFailAlarm: false };
+  }
+};
+
 const readDesiredSwitch = (row: DeviceDesiredStateRow): number | null => {
   const v = (row.desired_value as { switch?: unknown } | null)?.switch;
   if (v === 0 || v === "0") {
@@ -185,6 +237,15 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
         policyView.profile as unknown as Record<string, unknown>,
         config
       );
+      const plan = planReconcileStep({
+        action,
+        attemptCount: row.attempt_count,
+        onlineRetryIntervalSec: config.onlineRetryIntervalSec,
+        onlineFailAlarmAttempts: config.onlineFailAlarmAttempts,
+        offlineMinBackoffSec: minSec,
+        offlineMaxBackoffSec: maxSec,
+        jitterPct: config.jitterPct
+      });
 
       if (action === "reconciled") {
         await markDesiredReconciled(pool, row.id, { switch: reported });
@@ -193,7 +254,7 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
       }
 
       if (action === "unreachable") {
-        const backoffMs = computeBackoffMs(row.attempt_count + 1, minSec, maxSec, config.jitterPct);
+        const backoffMs = plan.nextEvalMs;
         await markDesiredUnreachable(pool, row.id, new Date(Date.now() + backoffMs));
         const unreachableForSec = row.unreachable_since
           ? (Date.now() - new Date(row.unreachable_since).getTime()) / 1000
@@ -222,7 +283,7 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
       if (action === "wait_in_flight") {
         // Online + a command already in flight: re-check at the fast online cadence (single-flight
         // prevents issuing a duplicate command; this just keeps us responsive once it terminates).
-        const waitMs = Math.max(1, config.onlineRetryIntervalSec) * 1000;
+        const waitMs = plan.nextEvalMs;
         await markDesiredInFlight(pool, row.id, {
           commandId: inFlight?.id ?? null,
           incrementAttempt: false,
@@ -242,7 +303,7 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
       const nextAttempt = row.attempt_count + 1;
       // Online retries run at a near-constant fast cadence (not 30→300s backoff): the device is
       // reachable, so we want to re-drive promptly each time a command goes terminal.
-      const nextEvalMs = Math.max(1, config.onlineRetryIntervalSec) * 1000;
+      const nextEvalMs = plan.nextEvalMs;
       await markDesiredInFlight(pool, row.id, {
         commandId: command.id,
         incrementAttempt: true,
@@ -264,7 +325,7 @@ export const processDesiredStateReconciliation = async (deps: ReconcilerDeps): P
 
       // Online but still not actuating after the configured number of attempts → fault alarm.
       // Fires exactly once (on the threshold attempt); the irade is NOT dropped — we keep trying.
-      if (nextAttempt === config.onlineFailAlarmAttempts) {
+      if (plan.emitOnlineFailAlarm) {
         await addCommandEvent(pool, command.id, "desired_state_online_not_actuating_alarm", {
           sn: row.sn,
           desired,
