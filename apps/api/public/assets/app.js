@@ -483,12 +483,6 @@
     state.lastOverview = ov;
     setAlarmBadge((cmdAlarms.items || []).length + ov.alarms + ov.owing);
 
-    const kpi = (cls, ic, label, val, unitTxt, sub) => `
-      <div class="kpi ${cls}">
-        <div class="kpi-top"><span>${label}</span><span class="kpi-ic">${ic}</span></div>
-        <div class="kpi-val">${val}${unitTxt ? `<small>${unitTxt}</small>` : ""}</div>
-        <div class="kpi-sub">${sub || ""}</div>
-      </div>`;
     const ICO = {
       meter: `<svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="9"/><path d="M12 12 8 8"/></svg>`,
       online: `<svg viewBox="0 0 24 24" class="ic"><path d="M5 12.5 9 16l10-9"/></svg>`,
@@ -499,16 +493,6 @@
       money: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 2v20M16 6.5C16 5 14.2 4 12 4S8 5 8 6.7s1.8 2.3 4 2.8 4 1.3 4 3-1.8 2.7-4 2.7-4-1-4-2.5"/></svg>`,
       shield: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3Z"/></svg>`
     };
-    const pctOnline = ov.managed ? Math.round((ov.online / ov.managed) * 100) : 0;
-
-    // Admin (system owner) top row: fleet-wide totals only.
-    const kpis = [
-      kpi("accent", ICO.meter, "Toplam Sayaç", nf(ov.total), "", `${nf(ov.managed)} yönetilen · ${nf(ov.new24h)} yeni (24s)`),
-      kpi("good", ICO.online, "Çevrim İçi", nf(ov.online), "", `yönetilenlerin %${pctOnline}'i`),
-      kpi(ov.offline ? "bad" : "", ICO.offline, "Çevrim Dışı", nf(ov.offline), "", `${state.settings.onlineWindowSec}s eşik`),
-      kpi(ov.quarantined ? "bad" : "", ICO.shield, "Karantina", nf(ov.quarantined), "", `onay bekliyor`)
-    ].join("");
-
     // Per-project rollup cards (same window aesthetic, multi-stat body).
     const projItems = (projects && projects.items) || [];
     const projCard = (p) => {
@@ -544,13 +528,16 @@
     (owing.items || []).forEach((d) => { if (!att.has(d.sn)) att.set(d.sn, { d, sev: "warn", reason: "Bakiye borçlu" }); });
     (offline.items || []).forEach((d) => { if (!att.has(d.sn) && d.registry_status !== "quarantined") att.set(d.sn, { d, sev: "info", reason: "Çevrimdışı" }); });
     const attArr = Array.from(att.values()).slice(0, 8);
-    const attHtml = attArr.length ? attArr.map((a) => `
+    const sevTag = { bad: "Alarm", warn: "Uyarı", info: "Bilgi" };
+    const attHtml = attArr.length ? `<div class="alarm-list">${attArr.map((a) => `
       <div class="alarm-item sev-${a.sev}" data-sn="${esc(a.d.sn)}">
         <div class="a-ic">${a.sev === "bad" ? ICO.alarm : a.sev === "warn" ? ICO.money : ICO.offline}</div>
-        <div class="a-main"><div class="a-title">${esc(a.d.label || a.d.sn)}</div>
-          <div class="a-sub">${esc(a.reason)} · <span class="mono">${esc(a.d.sn)}</span>${a.d.city ? " · " + esc(a.d.city) : ""}</div></div>
+        <div class="a-main">
+          <div class="a-title">${esc(a.d.label || a.d.sn)}</div>
+          <div class="a-sub"><span class="a-tag sev-${a.sev}">${sevTag[a.sev] || "Bilgi"}</span><span class="a-reason">${esc(a.reason)}</span> · <span class="mono">${esc(a.d.sn)}</span>${a.d.city ? " · " + esc(a.d.city) : ""}</div>
+        </div>
         <div class="a-time">${timeAgo(a.d.last_seen_at)}</div>
-      </div>`).join("") : `<div class="empty">Her şey yolunda — dikkat gerektiren cihaz yok.</div>`;
+      </div>`).join("")}</div>` : `<div class="alarm-empty"><div class="ae-ic">✓</div><div class="ae-txt"><b>Her şey yolunda</b><span>Dikkat gerektiren sayaç yok.</span></div></div>`;
 
     const segs = [
       { label: "Çevrimiçi", value: ov.online, color: "var(--on)" },
@@ -564,11 +551,9 @@
         <div><h1>Genel Bakış</h1><div class="sub">Filo komuta merkezi · ${fmtInterval(state.settings.refreshMs)} yenileme (komut sırasında otomatik hızlanır)</div></div>
         <div class="head-actions"><button class="btn" data-go="devices">Tüm cihazlar</button></div>
       </div>
-      <div class="kpi-grid">${kpis}</div>
-      ${projHtml}
       <div class="grid-2">
         <div class="panel">
-          <div class="panel-head"><h2>Filo Durumu</h2><div class="panel-actions"><span class="pill ${ov.alarms ? "warn" : "on"}"><span class="pdot"></span>${ov.alarms ? "alarm var" : "stabil"}</span></div></div>
+          <div class="panel-head"><h2>Sayaç Durumu</h2><div class="panel-actions"><span class="pill ${ov.alarms ? "warn" : "on"}"><span class="pdot"></span>${ov.alarms ? "alarm var" : "stabil"}</span></div></div>
           <div class="panel-pad">
             <div class="donut-wrap">
               ${donut(segs, ov.total)}
@@ -581,10 +566,11 @@
           </div>
         </div>
         <div class="panel">
-          <div class="panel-head"><h2>Dikkat Gerektirenler</h2><div class="panel-actions"><button class="btn sm ghost" data-go="alarms">Tümü →</button></div></div>
+          <div class="panel-head"><h2>Alarm ve Uyarılar</h2><div class="panel-actions">${attArr.length ? `<span class="pill ${attArr.some((a) => a.sev === "bad") ? "warn" : "on"}"><span class="pdot"></span>${nf(attArr.length)}</span>` : ""}<button class="btn sm ghost" data-go="alarms">Tümü →</button></div></div>
           <div>${attHtml}</div>
         </div>
-      </div>`;
+      </div>
+      ${projHtml}`;
 
     $$("[data-sn]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`)));
     $$("[data-go]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/${el.dataset.go}`)));
