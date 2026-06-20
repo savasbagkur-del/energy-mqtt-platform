@@ -362,7 +362,8 @@
       segs.forEach((s) => {
         const len = ((s.value || 0) / sum) * c;
         if (len <= 0) return;
-        arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${w}" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+        const p = sum ? Math.round(((s.value || 0) / sum) * 100) : 0;
+        arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${w}" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"><title>${esc(s.label || "")}: ${nf(s.value || 0)} (%${p})</title></circle>`;
         off += len;
       });
       return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--panel-3)" stroke-width="${w}"/>${arcs}`;
@@ -580,7 +581,9 @@
     const modelSegs = ((models && models.items) || []).map((m, i) => ({
       label: m.model || "Bilinmiyor", value: m.total, color: MODEL_COLORS[i % MODEL_COLORS.length]
     }));
-    const dlRow = (s) => `<div class="dl"><i style="background:${s.color}"></i>${esc(s.label)}<b>${nf(s.value)}</b></div>`;
+    const pct = (v, t) => (t ? Math.round((v / t) * 100) : 0);
+    const dlRow = (s) => `<div class="dl"><i style="background:${s.color}"></i>${esc(s.label)}<b>${nf(s.value)}<span class="dl-pct">%${pct(s.value, ov.total)}</span></b></div>`;
+    const ms = (label, value, unit) => `<div class="ms"><span class="ms-l">${label}</span><span class="ms-v">${value}${unit ? `<small>${unit}</small>` : ""}</span></div>`;
     const mixHtml = `
       <div class="panel">
         <div class="panel-head"><h2>Cihaz Dağılımı</h2><div class="panel-actions"><span class="pill"><span class="pdot"></span>iç: durum · dış: tip</span></div></div>
@@ -591,6 +594,14 @@
               <div class="mix-col"><div class="dl-group">Durum (iç halka)</div>${statusSegs.map(dlRow).join("")}</div>
               <div class="mix-col"><div class="dl-group">Cihaz Tipi (dış halka)</div>${modelSegs.length ? modelSegs.map(dlRow).join("") : `<div class="dl" style="color:var(--muted)">Model bilgisi yok</div>`}</div>
             </div>
+          </div>
+          <div class="mix-foot">
+            ${ms("Röle Açık", nf(ov.switchOn))}
+            ${ms("Röle Kapalı", nf(ov.switchOff))}
+            ${ms("Anlık Güç", nf(ov.totalActivePowerKw, 2), " kW")}
+            ${ms("Toplam Enerji", nf(ov.totalEnergyKwh, 1), " kWh")}
+            ${ms("Ort. Sinyal", ov.avgRssi != null ? nf(ov.avgRssi, 0) : "—")}
+            ${ms("Borçlu", nf(ov.owing))}
           </div>
         </div>
       </div>`;
