@@ -58,7 +58,10 @@ import {
   listPanelUsers,
   createPanelUser,
   updatePanelUser,
-  markPanelUserLogin
+  markPanelUserLogin,
+  listAlarms,
+  listOpenAlarmsForSn,
+  acknowledgeAlarm
 } from "@communication/db";
 import type { PanelUserRole } from "@communication/db";
 import type { DeviceMetadataInput, ListDevicesRegistryFilter } from "@communication/db";
@@ -1704,6 +1707,54 @@ app.get("/fleet/devices", async (req, res) => {
   } catch (error) {
     console.error("[api] failed to list fleet devices", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_list_fleet_devices" });
+  }
+});
+
+// Device-alarm ledger (e.g. COMMAND_CONFIRMATION_TIMEOUT raised by the worker reconciler).
+// status: 'open' (default) | 'acknowledged' | 'cleared' | 'all'. Joined with device metadata.
+app.get("/alarms", async (req, res) => {
+  try {
+    const statusRaw = typeof req.query.status === "string" ? req.query.status : "open";
+    const filter: import("@communication/db").ListAlarmsFilter = {
+      status: statusRaw as "open" | "acknowledged" | "cleared" | "all",
+      sn: typeof req.query.sn === "string" ? req.query.sn : null
+    };
+    if (typeof req.query.limit === "string") filter.limit = Number(req.query.limit);
+    const items = await listAlarms(dbPool, filter);
+    res.status(200).json({ count: items.length, items });
+  } catch (error) {
+    console.error("[api] failed to list alarms", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_alarms" });
+  }
+});
+
+app.get("/devices/:sn/alarms", async (req, res) => {
+  try {
+    const items = await listOpenAlarmsForSn(dbPool, req.params.sn);
+    res.status(200).json({ count: items.length, items });
+  } catch (error) {
+    console.error("[api] failed to list device alarms", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_device_alarms" });
+  }
+});
+
+app.post("/alarms/:id/acknowledge", requireControl, async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!id) {
+      res.status(400).json({ error: "missing_alarm_id" });
+      return;
+    }
+    const ackBy = req.authUser?.username ?? "service";
+    const row = await acknowledgeAlarm(dbPool, id, ackBy);
+    if (!row) {
+      res.status(404).json({ error: "alarm_not_found_or_not_open" });
+      return;
+    }
+    res.status(200).json(row);
+  } catch (error) {
+    console.error("[api] failed to acknowledge alarm", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_acknowledge_alarm" });
   }
 });
 

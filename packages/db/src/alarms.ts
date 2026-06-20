@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { AlarmSeverity, DeviceAlarmRow } from "./types.js";
+import type { AlarmSeverity, AlarmStatus, DeviceAlarmRow } from "./types.js";
 
 export const ALARM_COMMAND_CONFIRMATION_TIMEOUT = "COMMAND_CONFIRMATION_TIMEOUT";
 
@@ -82,5 +82,48 @@ export const listRecentAlarms = async (pool: Pool, limit = 100): Promise<DeviceA
     `SELECT * FROM device_alarms ORDER BY raised_at DESC LIMIT $1`,
     [Math.max(1, Math.min(500, limit))]
   );
+  return result.rows;
+};
+
+/** Alarm row enriched with device label/model/customer for the panel list. */
+export interface DeviceAlarmListRow extends DeviceAlarmRow {
+  label: string | null;
+  model: string | null;
+  customer_name: string | null;
+}
+
+export interface ListAlarmsFilter {
+  /** 'open' (default), 'acknowledged', 'cleared', or 'all'. */
+  status?: AlarmStatus | "all" | null;
+  sn?: string | null;
+  limit?: number;
+}
+
+/** Fleet-wide alarm list (panel-facing), joined with device metadata; defaults to open alarms. */
+export const listAlarms = async (
+  pool: Pool,
+  filter: ListAlarmsFilter = {}
+): Promise<DeviceAlarmListRow[]> => {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const status = filter.status ?? "open";
+  if (status && status !== "all") {
+    params.push(status);
+    where.push(`a.status = $${params.length}`);
+  }
+  if (filter.sn) {
+    params.push(filter.sn);
+    where.push(`a.sn = $${params.length}`);
+  }
+  params.push(Math.max(1, Math.min(500, filter.limit ?? 200)));
+  const sql = `
+    SELECT a.*, d.label, d.model, c.name AS customer_name
+    FROM device_alarms a
+    LEFT JOIN devices d ON d.sn = a.sn
+    LEFT JOIN customers c ON c.id = d.customer_id
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY a.raised_at DESC
+    LIMIT $${params.length}`;
+  const result = await pool.query<DeviceAlarmListRow>(sql, params);
   return result.rows;
 };
