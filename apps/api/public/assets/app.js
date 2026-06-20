@@ -12,7 +12,12 @@
   // Bump THEME_REV to force a one-time reset of the saved theme to the current default
   // (so stale "dark" preferences from before the Storm Clay redesign flip to light once).
   const THEME_REV = 2;
-  const defaultSettings = { refreshMs: 5000, onlineWindowSec: 300, theme: "light", offlineAlarmMin: 15, themeRev: THEME_REV };
+  // Settings schema rev: bump to push a new cost-saving default onto existing operators once.
+  const SETTINGS_REV = 1;
+  // While a switch/refresh command is mid-flight we poll fast so the operator sees the
+  // "opened / closed" confirmation promptly; otherwise we stay on the slow idle cadence.
+  const FAST_REFRESH_MS = 3000;
+  const defaultSettings = { refreshMs: 300000, onlineWindowSec: 360, theme: "light", offlineAlarmMin: 15, themeRev: THEME_REV, settingsRev: SETTINGS_REV };
 
   function loadUser() {
     try { const u = JSON.parse(localStorage.getItem(USER_KEY) || "null"); return u && u.username ? u : null; }
@@ -25,9 +30,12 @@
     user: loadUser(),
     route: { name: "overview", param: null, query: {} },
     refresher: null,        // async (silent) => void, set by the active view
+    activeCmd: null,        // { sn, deadline } — drives the fast polling burst after a command
     lookups: { customers: [], propertyTypes: [], loaded: false },
     lastOverview: null
   };
+  // Timestamp of the last auto-refresh tick that actually ran (drives the adaptive cadence).
+  let lastRefreshAt = 0;
 
   function loadSettings() {
     try {
@@ -35,6 +43,9 @@
       const merged = Object.assign({}, defaultSettings, raw);
       // One-time migration: snap to the new light default if the saved prefs predate it.
       if (merged.themeRev !== THEME_REV) { merged.theme = "light"; merged.themeRev = THEME_REV; }
+      // One-time migration to the cost-saving cadence: 5 dk idle yenileme + 6 dk çevrimiçi eşiği.
+      // (Komut verilince yine otomatik hızlanır.) Sonradan kullanıcı değiştirirse o tercih korunur.
+      if (merged.settingsRev !== SETTINGS_REV) { merged.refreshMs = 300000; merged.onlineWindowSec = 360; merged.settingsRev = SETTINGS_REV; }
       return merged;
     } catch { return Object.assign({}, defaultSettings); }
   }
@@ -373,6 +384,49 @@
     return "pend";
   }
 
+  // ---- adaptive polling: slow when idle, fast burst while a command is reconciling ----
+  function fmtInterval(ms) {
+    if (ms >= 60000) { const m = Math.round(ms / 60000); return `${m} dk`; }
+    return `${Math.round(ms / 1000)} sn`;
+  }
+  // How long we are willing to keep fast-polling after issuing a command: bounded by the
+  // device's command TTL when known, otherwise the online (kopma) window. Clamped 30s..15dk.
+  function commandSettleWindowMs(cv) {
+    const at = cv && cv.adaptiveTiming;
+    const ttlSec = at && at.commandTtlSec ? at.commandTtlSec : (state.settings.onlineWindowSec || 360);
+    return Math.min(Math.max(ttlSec, 30), 900) * 1000;
+  }
+  function commandPending(cv) {
+    const d = cv && cv.desired;
+    return !!(d && cmdClass(d.reconcile_status) === "pend");
+  }
+  // Reconcile the fast-polling flag against the live control view of the open device.
+  function syncActiveCmd(sn, cv) {
+    if (commandPending(cv)) {
+      if (!state.activeCmd || state.activeCmd.sn !== sn) {
+        state.activeCmd = { sn, deadline: Date.now() + commandSettleWindowMs(cv) };
+      }
+      return;
+    }
+    // Command settled (or none): if we were tracking one for this device, announce the outcome.
+    if (state.activeCmd && state.activeCmd.sn === sn) {
+      const d = cv && cv.desired;
+      if (d) {
+        const cls = cmdClass(d.reconcile_status);
+        if (cls === "ok") toast("İşlem tamamlandı", `Röle ${cv.switchDecoded === "on" ? "AÇILDI" : cv.switchDecoded === "off" ? "KAPANDI" : "durumu teyit edildi"}.`, "success");
+        else if (cls === "bad") toast("İşlem sonuçlanmadı", `Komut durumu: ${d.reconcile_status}. Uzlaştırıcı yeniden deneyecek.`, "error");
+      }
+      state.activeCmd = null;
+    }
+  }
+  function currentRefreshMs() {
+    if (state.activeCmd) {
+      if (Date.now() < state.activeCmd.deadline) return FAST_REFRESH_MS;
+      state.activeCmd = null; // settle window expired without confirmation; fall back to idle
+    }
+    return Math.max(2000, state.settings.refreshMs);
+  }
+
   // ================================================================ lookups
   async function ensureLookups(force) {
     if (state.lookups.loaded && !force) return;
@@ -451,7 +505,7 @@
 
     view.innerHTML = `
       <div class="page-head">
-        <div><h1>Genel Bakış</h1><div class="sub">Filo komuta merkezi · canlı durum (${state.settings.refreshMs / 1000}s yenileme)</div></div>
+        <div><h1>Genel Bakış</h1><div class="sub">Filo komuta merkezi · ${fmtInterval(state.settings.refreshMs)} yenileme (komut sırasında otomatik hızlanır)</div></div>
         <div class="head-actions"><button class="btn" data-go="devices">Tüm cihazlar</button></div>
       </div>
       <div class="kpi-grid">${kpis}</div>
@@ -719,6 +773,7 @@
     set("cmdSlot", commandTimeline(cv && cv.recentCommands));
     const method = document.getElementById("lastMethodTag");
     if (method) method.textContent = cv && cv.lastMethod ? "yöntem: " + cv.lastMethod : "";
+    syncActiveCmd(deviceState.sn, cv);
   }
 
   async function renderDevice(sn, silent) {
@@ -937,6 +992,8 @@
     try {
       await api("POST", `/devices/${encodeURIComponent(sn)}/commands/force-switch-${val}`);
       toast("Komut kuyruğa alındı", `Röle ${val ? "AÇ" : "KAPAT"} iradesi kaydedildi; uzlaştırıcı onay alana dek sürdürür.`, "success");
+      state.activeCmd = { sn, deadline: Date.now() + commandSettleWindowMs(null) };
+      lastRefreshAt = 0; // force the next tick (<=1s) into the fast cadence right away
       setTimeout(() => renderDevice(sn, true), 600);
     } catch (e) { toast("Komut hatası", e.message, "error"); }
   }
@@ -945,7 +1002,7 @@
     catch (e) { toast("Hata", e.message, "error"); }
   }
   async function refreshCmd(sn) {
-    try { await api("POST", `/devices/${encodeURIComponent(sn)}/commands/refresh`); toast("Yenileme istendi", "Cihazdan güncel durum talep edildi.", "success"); setTimeout(() => renderDevice(sn, true), 600); }
+    try { await api("POST", `/devices/${encodeURIComponent(sn)}/commands/refresh`); toast("Yenileme istendi", "Cihazdan güncel durum talep edildi.", "success"); state.activeCmd = { sn, deadline: Date.now() + commandSettleWindowMs(null) }; lastRefreshAt = 0; setTimeout(() => renderDevice(sn, true), 600); }
     catch (e) { toast("Hata", e.message, "error"); }
   }
 
@@ -1048,10 +1105,11 @@
             <div class="field"><label>Tema</label>
               <div class="seg" id="setTheme"><button data-v="dark" class="${state.settings.theme === "dark" ? "active" : ""}">Koyu</button><button data-v="light" class="${state.settings.theme === "light" ? "active" : ""}">Açık</button></div>
             </div>
-            <div class="field"><label>Otomatik yenileme aralığı</label>
+            <div class="field"><label>Otomatik yenileme aralığı (boştayken)</label>
               <select id="setRefresh">
-                ${[2000, 5000, 10000, 30000, 60000].map((v) => `<option value="${v}" ${state.settings.refreshMs === v ? "selected" : ""}>${v / 1000} saniye</option>`).join("")}
+                ${[10000, 30000, 60000, 120000, 300000].map((v) => `<option value="${v}" ${state.settings.refreshMs === v ? "selected" : ""}>${fmtInterval(v)}</option>`).join("")}
               </select>
+              <div class="hint">Komut (aç/kapat/yenile) verildiğinde onay gelene dek otomatik olarak ${fmtInterval(FAST_REFRESH_MS)}'de bir yenilenir.</div>
             </div>
             <div class="field"><label>Çevrimiçi eşiği (saniye)</label>
               <input id="setWindow" type="number" min="30" max="3600" value="${state.settings.onlineWindowSec}" />
@@ -1334,6 +1392,8 @@
     const r = parseHash();
     state.route = r;
     state.refresher = null;
+    // Leaving the device that has a fast-polling command in flight → drop back to idle cadence.
+    if (state.activeCmd && !(r.name === "device" && r.param === state.activeCmd.sn)) state.activeCmd = null;
     setNavActive(r.name);
     closeSidebar();
     try {
@@ -1354,13 +1414,19 @@
   window.addEventListener("hashchange", router);
 
   // -------- self-scheduling auto refresh (respects current settings + tab visibility)
+  // Fixed 1s tick that only actually refreshes when the per-view cadence (idle vs. fast burst)
+  // says it is due. Keeping the timer granularity decoupled from the cadence lets a freshly
+  // issued command speed things up immediately instead of waiting out a long idle interval.
   (function scheduleRefresh() {
     setTimeout(async () => {
-      if (document.visibilityState === "visible" && typeof state.refresher === "function") {
+      const now = Date.now();
+      if (document.visibilityState === "visible" && typeof state.refresher === "function"
+        && now - lastRefreshAt >= currentRefreshMs()) {
+        lastRefreshAt = now;
         try { await state.refresher(true); } catch { /* ignore transient */ }
       }
       scheduleRefresh();
-    }, Math.max(2000, state.settings.refreshMs));
+    }, 1000);
   })();
 
   // -------- topbar interactions
