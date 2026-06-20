@@ -569,20 +569,21 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .donut-legend .dl b { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 /* device-mix donut (inner status + outer model) */
-.mix-wrap { display: flex; align-items: center; gap: 30px; flex-wrap: wrap; }
+.mix-wrap { display: flex; align-items: center; gap: 34px; flex-wrap: wrap; }
 .mix-donut-wrap { flex: none; width: 230px; height: 230px; display: grid; place-items: center; }
-.mix-donut { display: block; overflow: visible; }
-.donut-seg { cursor: pointer; transition: opacity .18s ease, stroke-width .18s ease; transform-box: fill-box; }
-.donut-seg.dim { opacity: .25; }
-.donut-seg.hot { stroke-width: 21; filter: drop-shadow(0 2px 6px rgba(0,0,0,.28)); }
+/* keep the drawing inside its box so the hover highlight never bleeds into other sections */
+.mix-donut { display: block; overflow: hidden; }
+.donut-seg { cursor: pointer; transition: opacity .18s ease, filter .18s ease; }
+.donut-seg.dim { opacity: .22; }
+.donut-seg.hot { filter: brightness(1.08); }
 .donut-cv, .donut-cl { transition: fill .18s ease; pointer-events: none; }
-.mix-legends { display: flex; gap: 14px 38px; flex-wrap: wrap; flex: 1; min-width: 200px; }
-.mix-col { display: flex; flex-direction: column; gap: 8px; min-width: 150px; }
-.mix-col .dl { display: flex; align-items: center; gap: 9px; font-size: 13px; }
-.mix-col .dl i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
-.mix-col .dl b { margin-left: auto; font-variant-numeric: tabular-nums; }
-.dl-group { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
-.dl-pct { color: var(--muted); font-weight: 600; font-size: 11px; margin-left: 6px; }
+.mix-legends { display: flex; gap: 16px 44px; flex-wrap: wrap; flex: 1; min-width: 220px; }
+.mix-col { display: flex; flex-direction: column; gap: 11px; min-width: 168px; }
+.mix-col .dl { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.mix-col .dl i { width: 12px; height: 12px; border-radius: 4px; flex: none; }
+.mix-col .dl b { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 15px; }
+.dl-group { font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
+.dl-pct { color: var(--muted); font-weight: 600; font-size: 12.5px; margin-left: 7px; }
 
 /* ============================================================ Auth: login + user chip */
 .login-screen { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 22px;

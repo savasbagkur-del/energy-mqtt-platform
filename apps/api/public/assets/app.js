@@ -363,7 +363,7 @@
         const len = ((s.value || 0) / sum) * c;
         if (len <= 0) return;
         const p = sum ? Math.round(((s.value || 0) / sum) * 100) : 0;
-        arcs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" data-label="${esc(s.label || "")}" data-ring="${ringName}" data-value="${esc(nf(s.value || 0))}" data-pct="${p}" data-color="${esc(s.color)}"></circle>`;
+        arcs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${w}" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" data-label="${esc(s.label || "")}" data-ring="${ringName}" data-value="${esc(nf(s.value || 0))}" data-pct="${p}" data-color="${esc(s.color)}"></circle>`;
         off += len;
       });
       return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--panel-3)" stroke-width="${w}"/>${arcs}`;
