@@ -506,11 +506,11 @@
         </div>
         <div class="panel"><div class="table-wrap"><table class="data" id="devTable">
           <thead><tr>
-            <th>Durum</th><th>SN</th><th>Etiket</th><th>Müşteri / Konum</th>
+            <th>Durum</th><th>SN</th><th>Etiket</th><th>Model</th><th>Müşteri / Konum</th>
             <th class="num">Gerilim</th><th class="num">Akım</th><th class="num">Güç</th><th class="num">PF</th>
             <th class="num">Enerji</th><th>Röle</th><th>Sinyal</th><th>Son görülme</th><th></th>
           </tr></thead>
-          <tbody id="devBody"><tr><td colspan="13" class="empty">Yükleniyor…</td></tr></tbody>
+          <tbody id="devBody"><tr><td colspan="14" class="empty">Yükleniyor…</td></tr></tbody>
         </table></div><div class="pager" id="devPager"></div></div>`;
 
       $("#statusSeg").addEventListener("click", (e) => segPick(e, "status"));
@@ -548,10 +548,10 @@
     const body = $("#devBody"); if (!body) return;
     let res;
     try { res = await api("GET", `/fleet/devices?${buildDevicesQuery()}`); }
-    catch (e) { body.innerHTML = `<tr><td colspan="13" class="empty">${esc(e.message)}</td></tr>`; return; }
+    catch (e) { body.innerHTML = `<tr><td colspan="14" class="empty">${esc(e.message)}</td></tr>`; return; }
     devicesState.total = res.total;
     const cnt = $("#devCount"); if (cnt) cnt.textContent = `${nf(res.total)} cihaz`;
-    if (!res.items.length) { body.innerHTML = `<tr><td colspan="13" class="empty">Eşleşen cihaz yok.</td></tr>`; }
+    if (!res.items.length) { body.innerHTML = `<tr><td colspan="14" class="empty">Eşleşen cihaz yok.</td></tr>`; }
     else body.innerHTML = res.items.map((d) => {
       const approve = d.registry_status === "quarantined" ? `<button class="btn sm warn" data-approve="${esc(d.sn)}">Onayla</button>` : "";
       const pwr = d.active_power_kw;
@@ -559,6 +559,7 @@
         <td>${onlineDot(d.online)}</td>
         <td class="mono">${esc(d.sn)}</td>
         <td>${esc(d.label || "—")} ${d.registry_status === "quarantined" ? statusPill("quarantined") : ""}</td>
+        <td>${modelCell(d.model)}</td>
         <td>${esc(d.customer_name || "—")}${d.city ? `<span class="muted"> · ${esc(d.city)}</span>` : ""}</td>
         <td class="num">${d.voltage_v != null ? nf(d.voltage_v, 1) : "—"}</td>
         <td class="num">${d.current_a != null ? nf(d.current_a, 2) : "—"}</td>
@@ -865,6 +866,13 @@
     const threePhase = /^ADL3\d/.test(m) || /^DTS/.test(m) || /^DTZ/.test(m);
     return threePhase ? { n: 3, label: "3 Faz" } : { n: 1, label: "1 Faz" };
   }
+  // Compact model cell for the device list: model code + a phase tag (1F / 3F).
+  function modelCell(model) {
+    if (!model) return `<span class="muted">—</span>`;
+    const ph = phaseInfo(model);
+    const tag = ph ? `<span class="phase-tag ph${ph.n}">${ph.n}F</span>` : "";
+    return `<span class="mono">${esc(model)}</span>${tag}`;
+  }
   function telemetryModeLabel(mode) {
     if (mode === "consumption") return "Tüketim izleme";
     if (mode === "analysis") return "Enerji analiz";
@@ -901,8 +909,27 @@
       { name: "Gerilim (V)", color: "var(--info)", axis: "l", area: true, points: pts.map((p) => ({ t: toMs(p), y: p.voltage_v })) },
       { name: "PF", color: "var(--on)", axis: "r", points: pts.map((p) => ({ t: toMs(p), y: p.power_factor })) }
     ], { height: 180 });
-    area.innerHTML = `<div style="margin-bottom:6px;font-size:12px;color:var(--muted)">Güç & Akım</div>${powerCur}
+    let html = `<div style="margin-bottom:6px;font-size:12px;color:var(--muted)">Güç & Akım</div>${powerCur}
       <div style="margin:14px 0 6px;font-size:12px;color:var(--muted)">Gerilim & Güç Faktörü</div>${volt}`;
+
+    // Three-phase trend: only render the per-phase charts when L2/L3 data actually arrived
+    // (analysis-mode ADL300 etc.). Single-phase devices keep the compact view above.
+    const hasPhase = pts.some((p) => p.voltage_b_v != null || p.voltage_c_v != null || p.current_b_a != null || p.current_c_a != null);
+    if (hasPhase) {
+      const phaseVolt = lineChart([
+        { name: "L1 (V)", color: "var(--info)", axis: "l", points: pts.map((p) => ({ t: toMs(p), y: p.voltage_v })) },
+        { name: "L2 (V)", color: "var(--warn)", axis: "l", points: pts.map((p) => ({ t: toMs(p), y: p.voltage_b_v })) },
+        { name: "L3 (V)", color: "var(--on)", axis: "l", points: pts.map((p) => ({ t: toMs(p), y: p.voltage_c_v })) }
+      ], { height: 180 });
+      const phaseCur = lineChart([
+        { name: "L1 (A)", color: "var(--info)", axis: "l", points: pts.map((p) => ({ t: toMs(p), y: p.current_a })) },
+        { name: "L2 (A)", color: "var(--warn)", axis: "l", points: pts.map((p) => ({ t: toMs(p), y: p.current_b_a })) },
+        { name: "L3 (A)", color: "var(--on)", axis: "l", points: pts.map((p) => ({ t: toMs(p), y: p.current_c_a })) }
+      ], { height: 180 });
+      html += `<div style="margin:14px 0 6px;font-size:12px;color:var(--muted)">Faz Gerilimleri (L1 / L2 / L3)</div>${phaseVolt}
+        <div style="margin:14px 0 6px;font-size:12px;color:var(--muted)">Faz Akımları (L1 / L2 / L3)</div>${phaseCur}`;
+    }
+    area.innerHTML = html;
   }
 
   async function switchAction(sn, val) {

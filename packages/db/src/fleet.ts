@@ -107,6 +107,8 @@ export interface FleetDeviceRow {
   region: string | null;
   lat: number | null;
   lng: number | null;
+  model: string | null;
+  telemetry_mode: string | null;
   registry_status: string;
   lifecycle_status: string;
   last_seen_at: string | null;
@@ -153,6 +155,8 @@ const normaliseFleetRow = (r: Record<string, unknown>): FleetDeviceRow => ({
   region: (r.region as string) ?? null,
   lat: num(r.lat),
   lng: num(r.lng),
+  model: (r.model as string) ?? null,
+  telemetry_mode: (r.telemetry_mode as string) ?? null,
   registry_status: String(r.registry_status),
   lifecycle_status: String(r.lifecycle_status),
   last_seen_at: (r.last_seen_at as string) ?? null,
@@ -217,6 +221,7 @@ export const listFleetDevices = async (
     c.name AS customer_name,
     pt.label AS property_type_label,
     d.city, d.district, d.region, d.lat, d.lng,
+    d.model, d.telemetry_mode,
     d.registry_status, d.lifecycle_status,
     COALESCE(ls.last_seen_at, d.last_seen_at) AS last_seen_at,
     (${onlineExpr}) AS online,
@@ -360,6 +365,13 @@ export interface TelemetrySeriesPoint {
   energy_import_kwh: number | null;
   rssi: number | null;
   switch_state: number | null;
+  voltage_b_v: number | null;
+  voltage_c_v: number | null;
+  current_b_a: number | null;
+  current_c_a: number | null;
+  active_power_a_kw: number | null;
+  active_power_b_kw: number | null;
+  active_power_c_kw: number | null;
   samples: number;
 }
 
@@ -385,6 +397,13 @@ export const getTelemetrySeries = async (
        MAX(energy_import_kwh) AS energy_import_kwh,
        AVG(rssi) AS rssi,
        MAX(switch_state) AS switch_state,
+       AVG(voltage_b_v) AS voltage_b_v,
+       AVG(voltage_c_v) AS voltage_c_v,
+       AVG(current_b_a) AS current_b_a,
+       AVG(current_c_a) AS current_c_a,
+       AVG(active_power_a_kw) AS active_power_a_kw,
+       AVG(active_power_b_kw) AS active_power_b_kw,
+       AVG(active_power_c_kw) AS active_power_c_kw,
        COUNT(*) AS samples
      FROM telemetry_samples
      WHERE sn = $1 AND observed_at >= NOW() - ($3 || ' seconds')::interval
@@ -401,6 +420,13 @@ export const getTelemetrySeries = async (
     energy_import_kwh: num(r.energy_import_kwh),
     rssi: num(r.rssi),
     switch_state: num(r.switch_state),
+    voltage_b_v: num(r.voltage_b_v),
+    voltage_c_v: num(r.voltage_c_v),
+    current_b_a: num(r.current_b_a),
+    current_c_a: num(r.current_c_a),
+    active_power_a_kw: num(r.active_power_a_kw),
+    active_power_b_kw: num(r.active_power_b_kw),
+    active_power_c_kw: num(r.active_power_c_kw),
     samples: int(r.samples)
   }));
 };

@@ -335,6 +335,11 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .metric .m-val { font-size: 21px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .metric .m-val small { font-size: 12px; color: var(--muted); font-weight: 700; margin-left: 3px; }
 
+/* ============================================================ model phase tag */
+.phase-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: .03em; vertical-align: middle; border: 1px solid var(--line); }
+.phase-tag.ph1 { color: var(--muted); background: var(--surface-2, rgba(0,0,0,.04)); }
+.phase-tag.ph3 { color: var(--brand); background: color-mix(in srgb, var(--brand) 14%, transparent); border-color: color-mix(in srgb, var(--brand) 32%, transparent); }
+
 /* ============================================================ 3-phase table */
 .phase-tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .phase-tbl th, .phase-tbl td { padding: 9px 8px; text-align: right; font-size: 13px; border-bottom: 1px solid var(--line); }
