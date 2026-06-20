@@ -120,7 +120,19 @@ app.use(express.json({ limit: "8mb" }));
 app.use(express.text({ type: ["text/csv", "text/plain"], limit: "8mb" }));
 // Static manual-test control UI (served same-origin so the page can call the API without CORS).
 // Served before auth so the page itself loads and can prompt for the token.
-app.use(express.static(path.join(process.cwd(), "public")));
+// HTML must always revalidate so a new deploy is picked up on the next reload (the SPA shell
+// references versioned asset URLs). Versioned static assets (?v=) can be cached aggressively.
+app.use(
+  express.static(path.join(process.cwd(), "public"), {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-cache, must-revalidate");
+      } else if (/\.(css|js|svg|png|jpe?g|webp|woff2?)$/i.test(filePath)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000");
+      }
+    }
+  })
+);
 
 // Auth. Probes/scrapers (/health,/ready,/metrics) and the login endpoint stay open. Two credential
 // kinds are accepted on protected routes:
