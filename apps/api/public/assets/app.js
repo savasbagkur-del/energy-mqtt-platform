@@ -379,26 +379,34 @@
   function wireDonut(root) {
     const svg = root.querySelector(".mix-donut");
     if (!svg) return;
-    const cv = svg.querySelector(".donut-cv");
-    const cl = svg.querySelector(".donut-cl");
-    const defV = svg.dataset.total;
-    const defL = svg.dataset.label;
     const segs = Array.from(svg.querySelectorAll(".donut-seg"));
-    const reset = () => {
-      cv.textContent = defV;
-      cv.setAttribute("fill", "var(--txt)");
-      cl.textContent = defL;
-      segs.forEach((s) => s.classList.remove("dim", "hot"));
+    let tip = document.getElementById("donutTip");
+    if (!tip) {
+      tip = document.createElement("div");
+      tip.id = "donutTip";
+      tip.className = "donut-tip";
+      document.body.appendChild(tip);
+    }
+    const hide = () => { tip.style.display = "none"; segs.forEach((s) => s.classList.remove("dim", "hot")); };
+    const place = (e) => {
+      const pad = 16;
+      let x = e.clientX + 16, y = e.clientY + 16;
+      const r = tip.getBoundingClientRect();
+      if (x + r.width + pad > window.innerWidth) x = e.clientX - r.width - 16;
+      if (y + r.height + pad > window.innerHeight) y = e.clientY - r.height - 16;
+      tip.style.left = `${Math.max(pad, x)}px`;
+      tip.style.top = `${Math.max(pad, y)}px`;
     };
     segs.forEach((seg) => {
-      const on = () => {
-        cv.textContent = seg.dataset.value;
-        cv.setAttribute("fill", seg.dataset.color);
-        cl.textContent = `${seg.dataset.ring}: ${seg.dataset.label} · %${seg.dataset.pct}`;
+      seg.addEventListener("mouseenter", () => {
+        tip.innerHTML = `<span class="dt-dot" style="background:${seg.dataset.color}"></span>`
+          + `<span class="dt-l">${esc(seg.dataset.ring)} · ${esc(seg.dataset.label)}</span>`
+          + `<b>${esc(seg.dataset.value)}</b><span class="dt-p">%${esc(seg.dataset.pct)}</span>`;
+        tip.style.display = "flex";
         segs.forEach((s) => { s.classList.toggle("hot", s === seg); s.classList.toggle("dim", s !== seg); });
-      };
-      seg.addEventListener("mouseenter", on);
-      seg.addEventListener("mouseleave", reset);
+      });
+      seg.addEventListener("mousemove", place);
+      seg.addEventListener("mouseleave", hide);
     });
   }
 
@@ -624,7 +632,7 @@
     const mixHtml = `
       <div class="panel">
         <div class="panel-head"><h2>Cihaz Dağılımı</h2><div class="panel-actions"><span class="pill"><span class="pdot"></span>iç: durum · dış: tip</span></div></div>
-        <div class="panel-pad">
+        <div class="panel-pad mix-pad">
           <div class="mix-wrap">
             <div class="mix-donut-wrap">${donut2(statusSegs, modelSegs, ov.total)}</div>
             <div class="mix-legends">
