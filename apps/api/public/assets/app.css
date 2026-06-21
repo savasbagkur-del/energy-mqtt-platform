@@ -570,6 +570,18 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* big modal (forms) */
 .modal.lg { width: min(780px, 100%); max-height: 90vh; overflow-y: auto; }
+.modal.xl { width: min(1180px, 100%); max-height: 92vh; overflow: auto; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
+.modal-head h3 { margin: 0; }
+
+/* customer table (overview) */
+.cust-table .t-cust { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.cust-table .t-badge { width: 26px; height: 26px; border-radius: 8px; flex: none; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: var(--brand-ink); background: var(--brand-grad); }
+.t-stat { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; padding: 2px 8px; border-radius: 7px; font-weight: 800; font-variant-numeric: tabular-nums; background: var(--panel-2); border: 1px solid var(--line); }
+.t-stat.on { color: var(--on-text); }
+.t-stat.off { color: var(--off-text, var(--muted)); }
+.cust-table tr.row-alarm td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.btn.sm.icon { width: 30px; padding: 0; justify-content: center; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 12px 14px; }
 .form-grid.two { grid-template-columns: 1fr auto; }
 .form-grid .full { grid-column: 1 / -1; }

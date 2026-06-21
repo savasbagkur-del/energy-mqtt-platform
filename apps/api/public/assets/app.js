@@ -537,6 +537,124 @@
       </div>`;
   }
 
+  // ---- Generic org-chart (flow chart) renderer ----------------------------------------------
+  // A node is { kind, title, sub, badge, ico, stats:{total,online,offline,openAlarms}, data, children:[] }.
+  // Counts roll up: a parent's stats should equal the sum of its children (callers build it so).
+  const ORG_ICO = {
+    root: `<svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-5h6v5"/></svg>`,
+    campus: `<svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18M5 21V9l5-3 5 3M5 13h10M5 17h10M15 21V12l4 2v7"/></svg>`,
+    bldg: `<svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18M6 21V5l7-2 0 18M6 9h7M6 13h7M6 17h7M13 21V9l5 2v10"/></svg>`,
+    dot: `<svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="4"/></svg>`
+  };
+  function unitIco(label) {
+    const t = (label || "").toLocaleLowerCase("tr");
+    if (/daire|ev|oda|mesken|müstakil|mustakil/.test(t)) return `<svg viewBox="0 0 24 24" class="ic"><path d="M4 11 12 4l8 7M6 10v9h12v-9"/></svg>`;
+    if (/dükkan|dukkan|ofis|mağaza|magaza/.test(t)) return `<svg viewBox="0 0 24 24" class="ic"><path d="M4 9h16l-1-4H5L4 9Zm0 0v10h16V9M9 19v-5h6v5"/></svg>`;
+    if (/fabrika|sanayi|makine|üretim|uretim/.test(t)) return `<svg viewBox="0 0 24 24" class="ic"><path d="M3 21V10l5 3V10l5 3V8l8 4v9H3Z"/></svg>`;
+    if (/yurt|apart/.test(t)) return `<svg viewBox="0 0 24 24" class="ic"><path d="M5 21V4h10v17M15 21V9h4v12M8 8h4M8 12h4M8 16h4"/></svg>`;
+    return ORG_ICO.dot;
+  }
+  function ocStatsHtml(s) {
+    if (!s) return "";
+    const cell = (v, cls) => `<span class="oc-s ${cls}">${nf(v)}</span>`;
+    return `<div class="oc-stats">${cell(s.total, "tot")}${cell(s.online, "on")}${s.offline ? cell(s.offline, "off") : ""}${s.openAlarms ? `<span class="oc-s bad">⚠ ${nf(s.openAlarms)}</span>` : ""}</div>`;
+  }
+  function ocNodeHtml(n) {
+    const head = n.badge
+      ? `<span class="oc-badge">${esc(n.badge)}</span>`
+      : `<span class="oc-ic">${n.ico || ORG_ICO.dot}</span>`;
+    const sub = n.sub ? `<div class="oc-sub">${esc(n.sub)}</div>` : "";
+    const alarm = n.stats && n.stats.openAlarms ? " has-alarm" : "";
+    const kids = (n.children && n.children.length)
+      ? `<ul>${n.children.map((c) => `<li>${ocNodeHtml(c)}</li>`).join("")}</ul>` : "";
+    return `<div class="oc-node ${n.kind || ""}${alarm}${n.data ? " clickable" : ""}" ${n.data || ""}>
+        <div class="oc-title">${head}<span class="oc-t" title="${esc(n.title)}">${esc(n.title)}</span></div>
+        ${sub}${ocStatsHtml(n.stats)}
+      </div>${kids}`;
+  }
+  function orgChartHtml(root) {
+    return `<div class="org-scroll"><ul class="org-chart"><li>${ocNodeHtml(root)}</li></ul></div>`;
+  }
+  // Build a node tree from a /fleet/hierarchy customer row (customer → building → unit type).
+  function customerToNode(c) {
+    const cname = c.customerName && String(c.customerName).trim() ? c.customerName : "Atanmamış müşteri";
+    const since = c.customerSince ? "Kayıt: " + new Date(c.customerSince).toLocaleDateString("tr-TR") : "";
+    return {
+      kind: "cust", title: cname, badge: cname.slice(0, 2).toUpperCase(),
+      sub: `${since}${since ? " · " : ""}${nf((c.buildings || []).length)} bina`,
+      stats: c, data: c.customerId ? `data-customer="${esc(c.customerId)}" data-customer-label="${esc(cname)}"` : "",
+      children: (c.buildings || []).map((b) => {
+        const bname = b.buildingName && String(b.buildingName).trim() ? b.buildingName : "Atanmamış bina";
+        const projKey = (b.buildingName && String(b.buildingName).trim()) ? b.buildingName : "__none__";
+        const bdata = `data-project="${esc(projKey)}" data-project-label="${esc(bname)}"${c.customerId ? ` data-customer="${esc(c.customerId)}" data-customer-label="${esc(cname)}"` : ""}`;
+        return {
+          kind: "bldg", title: bname, ico: ORG_ICO.bldg, stats: b, data: bdata,
+          children: (b.units || []).map((u) => ({
+            kind: "leaf",
+            title: u.unitLabel && String(u.unitLabel).trim() ? u.unitLabel : "Tip yok",
+            ico: unitIco(u.unitLabel), stats: u, data: bdata
+          }))
+        };
+      })
+    };
+  }
+  // Open the flow chart for a single customer (or any node) in a modal — keeps the list clean.
+  function openDiagramModal(rootNode, titleText) {
+    modalMount.innerHTML = `
+      <div class="modal-backdrop"><div class="modal xl">
+        <div class="modal-head"><h3>${esc(titleText || "Akış şeması")}</h3>
+          <span class="oc-legend"><i class="lg tot"></i>sayaç <i class="lg on"></i>aktif <i class="lg off"></i>çevrimdışı</span>
+        </div>
+        ${orgChartHtml(rootNode)}
+        <div class="modal-actions"><button class="btn" id="diagClose">Kapat</button></div>
+      </div></div>`;
+    $("#diagClose").addEventListener("click", closeModal);
+    $(".modal-backdrop", modalMount).addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeModal(); });
+    $$("[data-project],[data-customer]", modalMount).forEach((el) => el.addEventListener("click", () => {
+      if (el.dataset.project) { devicesState.project = el.dataset.project; devicesState.projectLabel = el.dataset.projectLabel || el.dataset.project; }
+      else { devicesState.project = ""; devicesState.projectLabel = ""; }
+      devicesState.customer = el.dataset.customer || ""; devicesState.customerLabel = el.dataset.customerLabel || "";
+      devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
+      closeModal(); navigate("#/devices");
+    }));
+  }
+  // A made-up hierarchy to preview deeper nesting (customer → campus → building → units).
+  function demoDiagramNode() {
+    const leaf = (label, total, online, alarms) => ({ kind: "leaf", title: label, ico: unitIco(label), stats: { total, online, offline: total - online, openAlarms: alarms || 0 } });
+    const roll = (kind, title, ico, children) => {
+      const s = { total: 0, online: 0, offline: 0, openAlarms: 0 };
+      children.forEach((c) => { s.total += c.stats.total; s.online += c.stats.online; s.offline += c.stats.offline; s.openAlarms += c.stats.openAlarms; });
+      return { kind, title, ico, stats: s, children };
+    };
+    const b = (name, units) => roll("bldg", name, ORG_ICO.bldg, units);
+    const campus = (name, blds) => roll("campus", name, ORG_ICO.campus, blds);
+    const cust = (name, campuses) => { const n = roll("cust", name, null, campuses); n.badge = name.slice(0, 2).toUpperCase(); n.sub = `${campuses.length} yerleşke`; return n; };
+    const m1 = cust("Mülk A", [
+      campus("Yerleşke 1", [
+        b("Bina 1", [leaf("Daire", 12, 11), leaf("Dükkan", 4, 4), leaf("Makine", 2, 1, 1)]),
+        b("Bina 2", [leaf("Daire", 8, 8), leaf("Makine", 3, 3)])
+      ]),
+      campus("Yerleşke 2", [
+        b("Bina 1", [leaf("Daire", 10, 9, 1), leaf("Dükkan", 3, 2)])
+      ])
+    ]);
+    const m2 = cust("Mülk B", [
+      campus("Yerleşke 1", [
+        b("Bina 1", [leaf("Daire", 6, 6), leaf("Dükkan", 2, 2)]),
+        b("Bina 2", [leaf("Makine", 5, 4, 2), leaf("Daire", 7, 7)]),
+        b("Bina 3", [leaf("Dükkan", 4, 3), leaf("Daire", 9, 9)])
+      ]),
+      campus("Yerleşke 2", [
+        b("Bina 1", [leaf("Daire", 5, 5)]),
+        b("Bina 2", [leaf("Makine", 3, 2, 1), leaf("Dükkan", 2, 2)])
+      ]),
+      campus("Yerleşke 3", [
+        b("Bina 1", [leaf("Daire", 4, 4), leaf("Dükkan", 1, 1), leaf("Makine", 1, 1)])
+      ])
+    ]);
+    return roll("root", "Tüm Filo (demo)", ORG_ICO.root, [m1, m2]);
+  }
+
   async function renderOverview(silent) {
     if (!silent) view.innerHTML = overviewSkeleton();
     let ov, offline, alarms, owing, cmdAlarms, tree, models;
@@ -564,80 +682,39 @@
       money: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 2v20M16 6.5C16 5 14.2 4 12 4S8 5 8 6.7s1.8 2.3 4 2.8 4 1.3 4 3-1.8 2.7-4 2.7-4-1-4-2.5"/></svg>`,
       shield: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3Z"/></svg>`
     };
-    // Customer → building → unit-type hierarchy as a top-down flow chart (counts roll up to the
-    // root). Pure-CSS org chart (nested ul/li) with elbow connectors.
-    const UNIT_ICO = (label) => {
-      const t = (label || "").toLocaleLowerCase("tr");
-      const home = `<svg viewBox="0 0 24 24" class="ic"><path d="M4 11 12 4l8 7M6 10v9h12v-9"/></svg>`;
-      const shop = `<svg viewBox="0 0 24 24" class="ic"><path d="M4 9h16l-1-4H5L4 9Zm0 0v10h16V9M9 19v-5h6v5"/></svg>`;
-      const factory = `<svg viewBox="0 0 24 24" class="ic"><path d="M3 21V10l5 3V10l5 3V8l8 4v9H3Z"/></svg>`;
-      const dorm = `<svg viewBox="0 0 24 24" class="ic"><path d="M5 21V4h10v17M15 21V9h4v12M8 8h4M8 12h4M8 16h4"/></svg>`;
-      const dot = `<svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="4"/></svg>`;
-      if (/daire|ev|oda|mesken/.test(t)) return home;
-      if (/dükkan|dukkan|ofis|mağaza|magaza/.test(t)) return shop;
-      if (/fabrika|sanayi|makine|üretim|uretim/.test(t)) return factory;
-      if (/yurt|apart/.test(t)) return dorm;
-      return dot;
-    };
+    // Customers as a clean table; the flow chart for each customer opens in a modal (keeps the page
+    // tidy even with many customers). Data feeds the per-row "diagram" action.
     const custItems = (tree && tree.items) || [];
+    state.hierItems = custItems;
     const totalBuildings = custItems.reduce((s, c) => s + ((c.buildings && c.buildings.length) || 0), 0);
-    const ocStat = (v, cls) => `<span class="oc-s ${cls || ""}">${nf(v)}</span>`;
-    const ocStats = (n) => `<div class="oc-stats">
-        ${ocStat(n.total, "tot")}
-        ${ocStat(n.online, "on")}
-        ${n.offline ? ocStat(n.offline, "off") : ""}
-        ${n.openAlarms ? `<span class="oc-s bad">⚠ ${nf(n.openAlarms)}</span>` : ""}
-      </div>`;
-    const dataAttrs = (c, b) => {
-      const projKey = (b && b.buildingName && String(b.buildingName).trim()) ? b.buildingName : (b ? "__none__" : "");
-      const cust = c.customerId ? ` data-customer="${esc(c.customerId)}" data-customer-label="${esc(c.customerName || "")}"` : "";
-      const proj = b ? ` data-project="${esc(projKey)}" data-project-label="${esc(b.buildingName || "Atanmamış bina")}"` : "";
-      return cust + proj;
-    };
-    // leaf: a property-type bucket inside a building
-    const unitLi = (c, b, u) => {
-      const label = u.unitLabel && String(u.unitLabel).trim() ? u.unitLabel : "Tip yok";
-      return `<li><div class="oc-node leaf${u.openAlarms ? " has-alarm" : ""} clickable"${dataAttrs(c, b)} title="${esc(label)} · ${esc(b.buildingName || "Atanmamış bina")}">
-        <div class="oc-title"><span class="oc-ic">${UNIT_ICO(u.unitLabel)}</span><span class="oc-t">${esc(label)}</span></div>
-        ${ocStats(u)}
-      </div></li>`;
-    };
-    const buildingLi = (c, b) => {
-      const bname = b.buildingName && String(b.buildingName).trim() ? b.buildingName : "Atanmamış bina";
-      const kids = (b.units || []).map((u) => unitLi(c, b, u)).join("");
-      return `<li><div class="oc-node bldg${b.openAlarms ? " has-alarm" : ""} clickable"${dataAttrs(c, b)} title="${esc(bname)} cihazlarını gör">
-        <div class="oc-title"><span class="oc-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18M6 21V5l7-2 0 18M6 9h7M6 13h7M6 17h7M13 21V9l5 2v10"/></svg></span><span class="oc-t">${esc(bname)}</span></div>
-        ${ocStats(b)}
-      </div>${kids ? `<ul>${kids}</ul>` : ""}</li>`;
-    };
-    const customerLi = (c) => {
+    const cell = (v, cls) => `<td class="num"><span class="t-stat ${cls || ""}">${nf(v)}</span></td>`;
+    const custRow = (c, i) => {
       const cname = c.customerName && String(c.customerName).trim() ? c.customerName : "Atanmamış müşteri";
-      const since = c.customerSince ? new Date(c.customerSince).toLocaleDateString("tr-TR") : "";
-      const kids = (c.buildings || []).map((b) => buildingLi(c, b)).join("");
-      return `<li><div class="oc-node cust${c.openAlarms ? " has-alarm" : ""} clickable"${dataAttrs(c, null)} title="${esc(cname)} cihazlarını gör">
-        <div class="oc-title"><span class="oc-badge">${esc(cname.slice(0, 2).toUpperCase())}</span><span class="oc-t">${esc(cname)}</span></div>
-        ${since ? `<div class="oc-sub">Kayıt: ${esc(since)} · ${nf((c.buildings || []).length)} bina</div>` : `<div class="oc-sub">${nf((c.buildings || []).length)} bina</div>`}
-        ${ocStats(c)}
-      </div>${kids ? `<ul>${kids}</ul>` : ""}</li>`;
+      const since = c.customerSince ? new Date(c.customerSince).toLocaleDateString("tr-TR") : "—";
+      const cidAttr = c.customerId ? `data-customer="${esc(c.customerId)}" data-customer-label="${esc(cname)}"` : "";
+      return `<tr class="${c.openAlarms ? "row-alarm" : ""}">
+        <td><div class="t-cust"><span class="t-badge">${esc(cname.slice(0, 2).toUpperCase())}</span><b>${esc(cname)}</b></div></td>
+        <td class="muted">${esc(since)}</td>
+        <td class="num">${nf((c.buildings || []).length)}</td>
+        ${cell(c.total, "tot")}
+        ${cell(c.online, "on")}
+        ${cell(c.offline, c.offline ? "off" : "")}
+        <td class="num">${c.openAlarms ? `<span class="pill bad sm"><span class="pdot"></span>${nf(c.openAlarms)}</span>` : `<span class="muted">—</span>`}</td>
+        <td class="row-actions">
+          <button class="btn sm icon" data-diag="${i}" title="Akış şemasını aç"><svg viewBox="0 0 24 24" class="ic"><path d="M9 4h6v4H9zM4 16h6v4H4zM14 16h6v4h-6zM12 8v4M7 16v-2h10v2"/></svg></button>
+          ${cidAttr ? `<button class="btn sm ghost" ${cidAttr} data-cust-devs="1">Cihazlar →</button>` : ""}
+        </td>
+      </tr>`;
     };
-    // synthetic root that sums the whole fleet (everything converges upward to here)
-    const rootStats = { total: ov.total, online: ov.online, offline: ov.offline, openAlarms: custItems.reduce((s, c) => s + (c.openAlarms || 0), 0) };
-    const chartHtml = custItems.length
-      ? `<div class="org-scroll"><ul class="org-chart">
-           <li><div class="oc-node root">
-             <div class="oc-title"><span class="oc-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-5h6v5"/></svg></span><span class="oc-t">Tüm Filo</span></div>
-             <div class="oc-sub">${nf(custItems.length)} müşteri · ${nf(totalBuildings)} bina</div>
-             ${ocStats(rootStats)}
-           </div>
-           <ul>${custItems.map(customerLi).join("")}</ul></li>
-         </ul></div>`
-      : `<div class="empty" style="padding:28px">Henüz müşteriye atanmış cihaz yok.</div>`;
     const projHtml = `<div class="panel proj-panel">
         <div class="panel-head"><h2>Müşteriler</h2><div class="panel-actions">
-          <span class="oc-legend"><i class="lg tot"></i>sayaç <i class="lg on"></i>aktif <i class="lg off"></i>çevrimdışı</span>
+          <button class="btn sm" id="simDiag" title="Örnek hiyerarşi"><svg viewBox="0 0 24 24" class="ic"><path d="M9 4h6v4H9zM4 16h6v4H4zM14 16h6v4h-6zM12 8v4M7 16v-2h10v2"/></svg>Simülasyon</button>
           <span class="panel-note">${nf(custItems.length)} müşteri · ${nf(totalBuildings)} bina</span>
         </div></div>
-        <div class="panel-pad">${chartHtml}</div>
+        <div class="panel-pad">${custItems.length ? `<div class="table-wrap"><table class="data cust-table">
+          <thead><tr><th>Müşteri</th><th>Kayıt</th><th class="num">Bina</th><th class="num">Sayaç</th><th class="num">Aktif</th><th class="num">Çevrimdışı</th><th class="num">Alarm</th><th></th></tr></thead>
+          <tbody>${custItems.map(custRow).join("")}</tbody>
+        </table></div>` : `<div class="empty" style="padding:24px">Henüz müşteriye atanmış cihaz yok.</div>`}</div>
       </div>`;
 
     // attention list (dedup by sn, severity-ordered; command alarms take precedence)
@@ -704,15 +781,13 @@
     wireDonut(view);
     $$("[data-sn]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`)));
     $$("[data-go]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/${el.dataset.go}`)));
-    $$("[data-project]", view).forEach((el) => el.addEventListener("click", () => {
-      devicesState.project = el.dataset.project;
-      devicesState.projectLabel = el.dataset.projectLabel || el.dataset.project;
-      devicesState.customer = el.dataset.customer || "";
-      devicesState.customerLabel = el.dataset.customerLabel || "";
-      devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
-      navigate("#/devices");
+    $$("[data-diag]", view).forEach((el) => el.addEventListener("click", () => {
+      const c = (state.hierItems || [])[Number(el.dataset.diag)];
+      if (c) openDiagramModal(customerToNode(c), (c.customerName || "Atanmamış müşteri") + " · akış şeması");
     }));
-    $$("[data-customer]:not([data-project])", view).forEach((el) => el.addEventListener("click", () => {
+    const simBtn = $("#simDiag", view);
+    if (simBtn) simBtn.addEventListener("click", () => openDiagramModal(demoDiagramNode(), "Simülasyon · örnek hiyerarşi"));
+    $$("[data-cust-devs]", view).forEach((el) => el.addEventListener("click", () => {
       devicesState.customer = el.dataset.customer || "";
       devicesState.customerLabel = el.dataset.customerLabel || "";
       devicesState.project = ""; devicesState.projectLabel = "";
