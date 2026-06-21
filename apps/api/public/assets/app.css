@@ -576,6 +576,13 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* presence uptime timeline (device detail) */
 .pt-summary { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 12.5px; flex-wrap: wrap; }
+.pt-now { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: 9px; font-weight: 800; font-size: 12.5px; }
+.pt-now .pdot { width: 8px; height: 8px; border-radius: 50%; }
+.pt-now.on { color: var(--on-text); background: color-mix(in srgb, var(--on) 16%, var(--panel)); border: 1px solid color-mix(in srgb, var(--on) 45%, var(--line)); }
+.pt-now.on .pdot { background: var(--on); box-shadow: 0 0 0 3px color-mix(in srgb, var(--on) 28%, transparent); animation: ptpulse 2s ease-in-out infinite; }
+.pt-now.off { color: var(--off-text, var(--muted)); background: color-mix(in srgb, var(--off) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--off) 40%, var(--line)); }
+.pt-now.off .pdot { background: var(--off); }
+@keyframes ptpulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .pt-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 8px; font-weight: 800; font-size: 12px; }
 .pt-badge.on { color: var(--on-text); background: var(--panel-2); border: 1px solid var(--line); }
 .pt-wrap { position: relative; }

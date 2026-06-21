@@ -34,6 +34,7 @@ import {
   getDesiredState,
   getPresence,
   getPresenceHistory,
+  resolveDeviceOnline,
   decodeSwitchFromAdfState1,
   getDeviceCadence,
   deriveAdaptiveTiming,
@@ -883,8 +884,13 @@ app.get("/devices/:sn/presence-history", async (req, res) => {
   const sn = req.params.sn;
   try {
     const hours = typeof req.query.hours === "string" ? Number(req.query.hours) : 24;
-    const history = await getPresenceHistory(dbPool, sn, Number.isFinite(hours) ? hours : 24);
-    res.status(200).json({ sn, ...history });
+    const windowSec = typeof req.query.window === "string" && Number.isFinite(Number(req.query.window))
+      ? Number(req.query.window) : 360;
+    const [history, online] = await Promise.all([
+      getPresenceHistory(dbPool, sn, Number.isFinite(hours) ? hours : 24),
+      resolveDeviceOnline(dbPool, sn, windowSec)
+    ]);
+    res.status(200).json({ sn, online, ...history });
   } catch (error) {
     console.error("[api] failed to fetch presence history", { sn, message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_fetch_presence_history" });

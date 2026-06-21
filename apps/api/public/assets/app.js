@@ -1328,7 +1328,7 @@
   async function loadPresence(sn) {
     const area = $("#presenceArea"); if (!area) return;
     let data;
-    try { data = await api("GET", `/devices/${encodeURIComponent(sn)}/presence-history?hours=${deviceState.presenceHours}`); }
+    try { data = await api("GET", `/devices/${encodeURIComponent(sn)}/presence-history?hours=${deviceState.presenceHours}&window=${state.settings.onlineWindowSec}`); }
     catch (e) { area.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
     area.innerHTML = presenceTimeline(data);
     // Cursor-following tooltip for segments.
@@ -1398,8 +1398,10 @@
 
     const uptime = knownMs > 0 ? Math.round((onlineMs / knownMs) * 100) : null;
     const transitions = evs.length;
+    const live = !!data.online;
     return `
       <div class="pt-summary">
+        <span class="pt-now ${live ? "on" : "off"}"><span class="pdot"></span>Şu an: ${live ? "Çevrimiçi" : "Çevrimdışı"}</span>
         <span class="pt-badge on">Çevrimiçi ${uptime != null ? "%" + uptime : "—"}</span>
         <span class="muted">${nf(transitions)} durum değişimi · son ${deviceState.presenceHours >= 24 ? (deviceState.presenceHours / 24) + " gün" : deviceState.presenceHours + " saat"}</span>
       </div>
