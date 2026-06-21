@@ -57,7 +57,7 @@ import {
   setDeviceLifecycle,
   getFleetOverview,
   getProjectOverview,
-  getCustomerProjectTree,
+  getCustomerHierarchy,
   getModelOverview,
   listFleetDevices,
   getDeviceTelemetry,
@@ -1885,15 +1885,15 @@ app.get("/fleet/projects", async (req, res) => {
   }
 });
 
-// Customer → project hierarchy for the overview tree.
-app.get("/fleet/customer-tree", async (req, res) => {
+// Customer → building → unit-type hierarchy for the overview flow chart.
+app.get("/fleet/hierarchy", async (req, res) => {
   try {
     const win = typeof req.query.window === "string" ? Number(req.query.window) : undefined;
-    const items = await getCustomerProjectTree(dbPool, win);
+    const items = await getCustomerHierarchy(dbPool, win);
     res.status(200).json({ count: items.length, items });
   } catch (error) {
-    console.error("[api] failed to build customer tree", { message: error instanceof Error ? error.message : error });
-    res.status(500).json({ error: "failed_to_build_customer_tree" });
+    console.error("[api] failed to build customer hierarchy", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_build_customer_hierarchy" });
   }
 });
 

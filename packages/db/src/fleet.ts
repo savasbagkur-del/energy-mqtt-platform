@@ -156,9 +156,8 @@ export const getProjectOverview = async (
   });
 };
 
-export interface CustomerProjectNode {
-  /** project_name; null = devices with no project assigned. */
-  projectName: string | null;
+/** A roll-up node (counts that aggregate upward through the tree). */
+export interface HierarchyStats {
   total: number;
   online: number;
   offline: number;
@@ -166,29 +165,47 @@ export interface CustomerProjectNode {
   openAlarms: number;
 }
 
-export interface CustomerTreeRow {
+/** Leaf level: devices grouped by property type within a building (oda/daire/dükkan/...). */
+export interface HierarchyUnitNode extends HierarchyStats {
+  /** property_types.label; null = type not set. */
+  unitLabel: string | null;
+}
+
+/** Building / campus level (devices.project_name). */
+export interface HierarchyBuildingNode extends HierarchyStats {
+  /** project_name; null = no building assigned. */
+  buildingName: string | null;
+  units: HierarchyUnitNode[];
+}
+
+/** Top level: a customer and everything they own. */
+export interface CustomerHierarchyRow extends HierarchyStats {
   /** customers.id as string; null = devices not linked to any customer yet. */
   customerId: string | null;
   customerName: string | null;
   customerSince: string | null;
-  total: number;
-  online: number;
-  offline: number;
-  totalEnergyKwh: number;
-  openAlarms: number;
-  /** Buildings / projects owned by this customer (a customer may have several). */
-  projects: CustomerProjectNode[];
+  buildings: HierarchyBuildingNode[];
 }
 
+const addStats = (target: HierarchyStats, s: HierarchyStats): void => {
+  target.total += s.total;
+  target.online += s.online;
+  target.offline += s.offline;
+  target.totalEnergyKwh += s.totalEnergyKwh;
+  target.openAlarms += s.openAlarms;
+};
+
 /**
- * Customer → project hierarchy for the admin overview tree. One grouped query over
- * (customer, project_name); rolled up per customer in JS. Devices with no customer fall into a
- * trailing null bucket so nothing is hidden. Scales with the fleet, not the browser.
+ * Full customer → building → unit-type hierarchy for the overview flow chart. One grouped query
+ * over (customer, project_name, property type); assembled into a 3-level tree in JS where every
+ * level's counts are the sum of its children (rolls up toward the customer/root). Devices with no
+ * customer/building/type fall into trailing null buckets so nothing is hidden. Scales with the
+ * fleet, not the browser.
  */
-export const getCustomerProjectTree = async (
+export const getCustomerHierarchy = async (
   pool: Pool,
   onlineWindowSec = 300
-): Promise<CustomerTreeRow[]> => {
+): Promise<CustomerHierarchyRow[]> => {
   const win = String(clampInt(onlineWindowSec, 300, 30, 86400));
   const res = await pool.query(
     `SELECT
@@ -196,6 +213,8 @@ export const getCustomerProjectTree = async (
        c.name AS customer_name,
        c.created_at AS customer_since,
        d.project_name,
+       pt.label AS unit_label,
+       pt.sort_order AS unit_sort,
        COUNT(*) AS total,
        COUNT(*) FILTER (WHERE ls.last_seen_at >= NOW() - ($1 || ' seconds')::interval) AS online,
        COALESCE(SUM(ls.energy_import_kwh), 0) AS total_energy_kwh,
@@ -203,19 +222,21 @@ export const getCustomerProjectTree = async (
      FROM devices d
      LEFT JOIN device_latest_state ls ON ls.sn = d.sn
      LEFT JOIN customers c ON c.id = d.customer_id
+     LEFT JOIN property_types pt ON pt.id = d.property_type_id
      LEFT JOIN (
        SELECT sn, COUNT(*) AS cnt FROM device_alarms WHERE status = 'open' GROUP BY sn
      ) oa ON oa.sn = d.sn
      WHERE d.registry_status IN ('registered', 'auto')
-     GROUP BY d.customer_id, c.name, c.created_at, d.project_name
-     ORDER BY (d.customer_id IS NULL), c.name NULLS LAST, COUNT(*) DESC, d.project_name NULLS LAST`,
+     GROUP BY d.customer_id, c.name, c.created_at, d.project_name, pt.label, pt.sort_order
+     ORDER BY (d.customer_id IS NULL), c.name NULLS LAST, d.project_name NULLS LAST,
+              pt.sort_order NULLS LAST, pt.label NULLS LAST`,
     [win]
   );
-  const byCustomer = new Map<string, CustomerTreeRow>();
+  const byCustomer = new Map<string, CustomerHierarchyRow>();
   for (const r of res.rows) {
     const cid = r.customer_id == null ? null : String(r.customer_id);
-    const key = cid ?? "__none__";
-    let cust = byCustomer.get(key);
+    const ckey = cid ?? "__none__";
+    let cust = byCustomer.get(ckey);
     if (!cust) {
       cust = {
         customerId: cid,
@@ -226,27 +247,29 @@ export const getCustomerProjectTree = async (
         offline: 0,
         totalEnergyKwh: 0,
         openAlarms: 0,
-        projects: []
+        buildings: []
       };
-      byCustomer.set(key, cust);
+      byCustomer.set(ckey, cust);
+    }
+    const bname = (r.project_name as string | null) ?? null;
+    let bld = cust.buildings.find((b) => b.buildingName === bname);
+    if (!bld) {
+      bld = { buildingName: bname, total: 0, online: 0, offline: 0, totalEnergyKwh: 0, openAlarms: 0, units: [] };
+      cust.buildings.push(bld);
     }
     const total = int(r.total);
     const online = int(r.online);
-    const energy = num(r.total_energy_kwh) ?? 0;
-    const alarms = int(r.open_alarms);
-    cust.projects.push({
-      projectName: (r.project_name as string | null) ?? null,
+    const leaf: HierarchyUnitNode = {
+      unitLabel: (r.unit_label as string | null) ?? null,
       total,
       online,
       offline: Math.max(total - online, 0),
-      totalEnergyKwh: energy,
-      openAlarms: alarms
-    });
-    cust.total += total;
-    cust.online += online;
-    cust.offline += Math.max(total - online, 0);
-    cust.totalEnergyKwh += energy;
-    cust.openAlarms += alarms;
+      totalEnergyKwh: num(r.total_energy_kwh) ?? 0,
+      openAlarms: int(r.open_alarms)
+    };
+    bld.units.push(leaf);
+    addStats(bld, leaf);
+    addStats(cust, leaf);
   }
   return Array.from(byCustomer.values());
 };

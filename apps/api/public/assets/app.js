@@ -547,7 +547,7 @@
         api("GET", `/fleet/devices?alarm=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?owing=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/alarms?status=open&limit=6`).catch(() => ({ items: [] })),
-        api("GET", `/fleet/customer-tree?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
+        api("GET", `/fleet/hierarchy?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/models`).catch(() => ({ items: [] }))
       ]);
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
@@ -564,55 +564,81 @@
       money: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 2v20M16 6.5C16 5 14.2 4 12 4S8 5 8 6.7s1.8 2.3 4 2.8 4 1.3 4 3-1.8 2.7-4 2.7-4-1-4-2.5"/></svg>`,
       shield: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3Z"/></svg>`
     };
-    // Customer → project (building) hierarchy as an expandable tree.
-    const treeItems = (tree && tree.items) || [];
-    const totalProjects = treeItems.reduce((s, c) => s + ((c.projects && c.projects.length) || 0), 0);
-    const miniStat = (v, l, cls) => `<span class="tn-stat ${cls || ""}"><b>${nf(v)}</b>${l}</span>`;
-    const projLeaf = (c, p) => {
-      const pname = p.projectName && String(p.projectName).trim() ? p.projectName : "Atanmamış bina";
-      const projKey = (p.projectName && String(p.projectName).trim()) ? p.projectName : "__none__";
-      const cidAttr = c.customerId ? ` data-customer="${esc(c.customerId)}" data-customer-label="${esc(c.customerName || "")}"` : "";
-      return `<div class="tree-leaf clickable${p.openAlarms ? " has-alarm" : ""}" data-project="${esc(projKey)}" data-project-label="${esc(pname)}"${cidAttr} title="${esc(pname)} cihazlarını gör">
-        <span class="tl-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18M6 21V8l6-4 6 4v13M10 12h4M10 16h4"/></svg></span>
-        <span class="tl-name" title="${esc(pname)}">${esc(pname)}</span>
-        <span class="tl-stats">
-          ${miniStat(p.total, "sayaç")}
-          ${miniStat(p.online, "aktif", "on")}
-          ${p.offline ? miniStat(p.offline, "çd", "off") : ""}
-          <span class="tn-stat"><b>${nf(p.totalEnergyKwh, 1)}</b>kWh</span>
-          ${p.openAlarms ? `<span class="pill bad sm"><span class="pdot"></span>${nf(p.openAlarms)}</span>` : ""}
-        </span>
-      </div>`;
+    // Customer → building → unit-type hierarchy as a top-down flow chart (counts roll up to the
+    // root). Pure-CSS org chart (nested ul/li) with elbow connectors.
+    const UNIT_ICO = (label) => {
+      const t = (label || "").toLocaleLowerCase("tr");
+      const home = `<svg viewBox="0 0 24 24" class="ic"><path d="M4 11 12 4l8 7M6 10v9h12v-9"/></svg>`;
+      const shop = `<svg viewBox="0 0 24 24" class="ic"><path d="M4 9h16l-1-4H5L4 9Zm0 0v10h16V9M9 19v-5h6v5"/></svg>`;
+      const factory = `<svg viewBox="0 0 24 24" class="ic"><path d="M3 21V10l5 3V10l5 3V8l8 4v9H3Z"/></svg>`;
+      const dorm = `<svg viewBox="0 0 24 24" class="ic"><path d="M5 21V4h10v17M15 21V9h4v12M8 8h4M8 12h4M8 16h4"/></svg>`;
+      const dot = `<svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="4"/></svg>`;
+      if (/daire|ev|oda|mesken/.test(t)) return home;
+      if (/dükkan|dukkan|ofis|mağaza|magaza/.test(t)) return shop;
+      if (/fabrika|sanayi|makine|üretim|uretim/.test(t)) return factory;
+      if (/yurt|apart/.test(t)) return dorm;
+      return dot;
     };
-    const custNode = (c, i) => {
+    const custItems = (tree && tree.items) || [];
+    const totalBuildings = custItems.reduce((s, c) => s + ((c.buildings && c.buildings.length) || 0), 0);
+    const ocStat = (v, cls) => `<span class="oc-s ${cls || ""}">${nf(v)}</span>`;
+    const ocStats = (n) => `<div class="oc-stats">
+        ${ocStat(n.total, "tot")}
+        ${ocStat(n.online, "on")}
+        ${n.offline ? ocStat(n.offline, "off") : ""}
+        ${n.openAlarms ? `<span class="oc-s bad">⚠ ${nf(n.openAlarms)}</span>` : ""}
+      </div>`;
+    const dataAttrs = (c, b) => {
+      const projKey = (b && b.buildingName && String(b.buildingName).trim()) ? b.buildingName : (b ? "__none__" : "");
+      const cust = c.customerId ? ` data-customer="${esc(c.customerId)}" data-customer-label="${esc(c.customerName || "")}"` : "";
+      const proj = b ? ` data-project="${esc(projKey)}" data-project-label="${esc(b.buildingName || "Atanmamış bina")}"` : "";
+      return cust + proj;
+    };
+    // leaf: a property-type bucket inside a building
+    const unitLi = (c, b, u) => {
+      const label = u.unitLabel && String(u.unitLabel).trim() ? u.unitLabel : "Tip yok";
+      return `<li><div class="oc-node leaf${u.openAlarms ? " has-alarm" : ""} clickable"${dataAttrs(c, b)} title="${esc(label)} · ${esc(b.buildingName || "Atanmamış bina")}">
+        <div class="oc-title"><span class="oc-ic">${UNIT_ICO(u.unitLabel)}</span><span class="oc-t">${esc(label)}</span></div>
+        ${ocStats(u)}
+      </div></li>`;
+    };
+    const buildingLi = (c, b) => {
+      const bname = b.buildingName && String(b.buildingName).trim() ? b.buildingName : "Atanmamış bina";
+      const kids = (b.units || []).map((u) => unitLi(c, b, u)).join("");
+      return `<li><div class="oc-node bldg${b.openAlarms ? " has-alarm" : ""} clickable"${dataAttrs(c, b)} title="${esc(bname)} cihazlarını gör">
+        <div class="oc-title"><span class="oc-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18M6 21V5l7-2 0 18M6 9h7M6 13h7M6 17h7M13 21V9l5 2v10"/></svg></span><span class="oc-t">${esc(bname)}</span></div>
+        ${ocStats(b)}
+      </div>${kids ? `<ul>${kids}</ul>` : ""}</li>`;
+    };
+    const customerLi = (c) => {
       const cname = c.customerName && String(c.customerName).trim() ? c.customerName : "Atanmamış müşteri";
-      const initials = cname.slice(0, 2).toUpperCase();
-      const open = i === 0 ? " open" : "";
-      const since = c.customerSince ? "Kayıt: " + new Date(c.customerSince).toLocaleDateString("tr-TR") : "";
-      const nProj = (c.projects && c.projects.length) || 0;
-      return `<div class="tree-node${open}${c.openAlarms ? " has-alarm" : ""}">
-        <div class="tn-head" role="button" tabindex="0">
-          <span class="tn-caret"><svg viewBox="0 0 24 24" class="ic"><path d="m9 6 6 6-6 6"/></svg></span>
-          <span class="tn-badge">${esc(initials)}</span>
-          <span class="tn-meta">
-            <span class="tn-name" title="${esc(cname)}">${esc(cname)}</span>
-            <span class="tn-sub">${esc(since)}${since ? " · " : ""}${nf(nProj)} bina</span>
-          </span>
-          <span class="tn-stats">
-            ${miniStat(c.total, "sayaç")}
-            ${miniStat(c.online, "aktif", "on")}
-            ${c.openAlarms ? `<span class="pill bad sm"><span class="pdot"></span>${nf(c.openAlarms)}</span>` : ""}
-          </span>
-        </div>
-        <div class="tn-children">${(c.projects || []).map((p) => projLeaf(c, p)).join("")}</div>
-      </div>`;
+      const since = c.customerSince ? new Date(c.customerSince).toLocaleDateString("tr-TR") : "";
+      const kids = (c.buildings || []).map((b) => buildingLi(c, b)).join("");
+      return `<li><div class="oc-node cust${c.openAlarms ? " has-alarm" : ""} clickable"${dataAttrs(c, null)} title="${esc(cname)} cihazlarını gör">
+        <div class="oc-title"><span class="oc-badge">${esc(cname.slice(0, 2).toUpperCase())}</span><span class="oc-t">${esc(cname)}</span></div>
+        ${since ? `<div class="oc-sub">Kayıt: ${esc(since)} · ${nf((c.buildings || []).length)} bina</div>` : `<div class="oc-sub">${nf((c.buildings || []).length)} bina</div>`}
+        ${ocStats(c)}
+      </div>${kids ? `<ul>${kids}</ul>` : ""}</li>`;
     };
-    const projHtml = treeItems.length
-      ? `<div class="panel proj-panel">
-           <div class="panel-head"><h2>Müşteriler</h2><div class="panel-actions"><span class="panel-note">${nf(treeItems.length)} müşteri · ${nf(totalProjects)} bina/proje</span></div></div>
-           <div class="panel-pad"><div class="cust-tree">${treeItems.map(custNode).join("")}</div></div>
-         </div>`
-      : "";
+    // synthetic root that sums the whole fleet (everything converges upward to here)
+    const rootStats = { total: ov.total, online: ov.online, offline: ov.offline, openAlarms: custItems.reduce((s, c) => s + (c.openAlarms || 0), 0) };
+    const chartHtml = custItems.length
+      ? `<div class="org-scroll"><ul class="org-chart">
+           <li><div class="oc-node root">
+             <div class="oc-title"><span class="oc-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-5h6v5"/></svg></span><span class="oc-t">Tüm Filo</span></div>
+             <div class="oc-sub">${nf(custItems.length)} müşteri · ${nf(totalBuildings)} bina</div>
+             ${ocStats(rootStats)}
+           </div>
+           <ul>${custItems.map(customerLi).join("")}</ul></li>
+         </ul></div>`
+      : `<div class="empty" style="padding:28px">Henüz müşteriye atanmış cihaz yok.</div>`;
+    const projHtml = `<div class="panel proj-panel">
+        <div class="panel-head"><h2>Müşteriler</h2><div class="panel-actions">
+          <span class="oc-legend"><i class="lg tot"></i>sayaç <i class="lg on"></i>aktif <i class="lg off"></i>çevrimdışı</span>
+          <span class="panel-note">${nf(custItems.length)} müşteri · ${nf(totalBuildings)} bina</span>
+        </div></div>
+        <div class="panel-pad">${chartHtml}</div>
+      </div>`;
 
     // attention list (dedup by sn, severity-ordered; command alarms take precedence)
     const att = new Map();
@@ -686,11 +712,13 @@
       devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
       navigate("#/devices");
     }));
-    $$(".cust-tree .tn-head", view).forEach((el) => {
-      const toggle = () => el.parentElement.classList.toggle("open");
-      el.addEventListener("click", toggle);
-      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
-    });
+    $$("[data-customer]:not([data-project])", view).forEach((el) => el.addEventListener("click", () => {
+      devicesState.customer = el.dataset.customer || "";
+      devicesState.customerLabel = el.dataset.customerLabel || "";
+      devicesState.project = ""; devicesState.projectLabel = "";
+      devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
+      navigate("#/devices");
+    }));
     state.refresher = renderOverview;
   }
 
