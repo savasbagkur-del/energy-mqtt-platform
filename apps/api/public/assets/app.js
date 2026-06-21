@@ -973,7 +973,7 @@
   }
 
   // ================================================================ DEVICE DETAIL
-  const deviceState = { sn: null, range: "24h" };
+  const deviceState = { sn: null, range: "24h", presenceHours: 24 };
 
   // builders for the live (auto-refreshed) regions — kept separate so silent refresh updates
   // only these slots and never disturbs the trend chart or rebinds static controls.
@@ -1164,6 +1164,15 @@
           </div>
 
           <div class="panel">
+            <div class="panel-head"><h2>Çevrimiçi / Çevrimdışı Geçmişi</h2>
+              <div class="panel-actions"><div class="seg" id="presSeg">
+                ${[["24", "24s"], ["72", "3g"], ["168", "7g"], ["720", "30g"]].map(([v, l]) => `<button data-v="${v}" class="${String(v) === String(deviceState.presenceHours) ? "active" : ""}">${l}</button>`).join("")}
+              </div></div>
+            </div>
+            <div class="panel-pad" id="presenceArea"><div class="loading">Yükleniyor…</div></div>
+          </div>
+
+          <div class="panel">
             <div class="panel-head"><h2>Komut Geçmişi (gönderim → ACK)</h2></div>
             <div class="panel-pad" id="cmdSlot"></div>
           </div>
@@ -1232,8 +1241,13 @@
       $$("#rangeSeg button", view).forEach((x) => x.classList.remove("active")); b.classList.add("active");
       deviceState.range = b.dataset.v; loadSeries(sn);
     }));
+    $$("#presSeg button", view).forEach((b) => b.addEventListener("click", () => {
+      $$("#presSeg button", view).forEach((x) => x.classList.remove("active")); b.classList.add("active");
+      deviceState.presenceHours = Number(b.dataset.v); loadPresence(sn);
+    }));
 
     loadSeries(sn);
+    loadPresence(sn);
     state.refresher = () => renderDevice(sn, true);
   }
 
@@ -1309,6 +1323,97 @@
         <div style="margin:14px 0 6px;font-size:12px;color:var(--muted)">Faz Akımları (L1 / L2 / L3)</div>${phaseCur}`;
     }
     area.innerHTML = html;
+  }
+
+  async function loadPresence(sn) {
+    const area = $("#presenceArea"); if (!area) return;
+    let data;
+    try { data = await api("GET", `/devices/${encodeURIComponent(sn)}/presence-history?hours=${deviceState.presenceHours}`); }
+    catch (e) { area.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+    area.innerHTML = presenceTimeline(data);
+    // Cursor-following tooltip for segments.
+    const tip = $("#presTip", area);
+    $$(".pt-seg", area).forEach((seg) => {
+      seg.addEventListener("mousemove", (e) => {
+        if (!tip) return;
+        tip.textContent = seg.dataset.tip || "";
+        tip.style.display = "block";
+        const r = area.getBoundingClientRect();
+        tip.style.left = (e.clientX - r.left) + "px";
+        tip.style.top = (e.clientY - r.top - 10) + "px";
+      });
+      seg.addEventListener("mouseleave", () => { if (tip) tip.style.display = "none"; });
+    });
+  }
+
+  // Build an uptime timeline (status strip) from presence transitions. Green = online,
+  // red = offline, gray = unknown (before the first recorded event).
+  function presenceTimeline(data) {
+    const start = new Date(data.since).getTime();
+    const end = new Date(data.now).getTime();
+    const span = Math.max(end - start, 1);
+    const evs = (data.events || [])
+      .map((e) => ({ status: e.status, t: new Date(e.eventAt).getTime(), source: e.source }))
+      .filter((e) => e.t >= start && e.t <= end)
+      .sort((a, b) => a.t - b.t);
+    // Assemble [from,to,status] segments across the window.
+    const segs = [];
+    let cur = data.priorStatus || (evs.length ? (evs[0].status === "online" ? "offline" : "online") : "unknown");
+    if (!data.priorStatus && !evs.length) cur = "unknown";
+    let mark = start;
+    for (const e of evs) {
+      if (e.t > mark) segs.push({ from: mark, to: e.t, status: cur });
+      cur = e.status; mark = e.t;
+    }
+    segs.push({ from: mark, to: end, status: cur });
+
+    const fmt = (ms) => new Date(ms).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const dur = (ms) => {
+      const m = Math.round(ms / 60000);
+      if (m < 60) return `${m} dk`;
+      const h = Math.floor(m / 60), mm = m % 60;
+      if (h < 24) return `${h} sa${mm ? " " + mm + " dk" : ""}`;
+      const d = Math.floor(h / 24), hh = h % 24;
+      return `${d} gün${hh ? " " + hh + " sa" : ""}`;
+    };
+    const stLabel = { online: "Çevrimiçi", offline: "Çevrimdışı", unknown: "Bilinmiyor" };
+    let onlineMs = 0, knownMs = 0;
+    const rects = segs.map((s) => {
+      const w = ((s.to - s.from) / span) * 100;
+      const x = ((s.from - start) / span) * 100;
+      if (s.status !== "unknown") { knownMs += (s.to - s.from); if (s.status === "online") onlineMs += (s.to - s.from); }
+      const tip = `${stLabel[s.status]} · ${dur(s.to - s.from)}\n${fmt(s.from)} → ${fmt(s.to)}`;
+      return `<div class="pt-seg ${s.status}" style="left:${x}%;width:${w}%" data-tip="${esc(tip)}"></div>`;
+    }).join("");
+
+    // A few evenly spaced time ticks.
+    const TICKS = 5;
+    const ticks = Array.from({ length: TICKS + 1 }).map((_, i) => {
+      const ms = start + (span * i) / TICKS;
+      const lbl = span <= 36 * 3600e3
+        ? new Date(ms).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })
+        : new Date(ms).toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit" });
+      return `<span style="flex:1;text-align:${i === 0 ? "left" : i === TICKS ? "right" : "center"}">${lbl}</span>`;
+    }).join("");
+
+    const uptime = knownMs > 0 ? Math.round((onlineMs / knownMs) * 100) : null;
+    const transitions = evs.length;
+    return `
+      <div class="pt-summary">
+        <span class="pt-badge on">Çevrimiçi ${uptime != null ? "%" + uptime : "—"}</span>
+        <span class="muted">${nf(transitions)} durum değişimi · son ${deviceState.presenceHours >= 24 ? (deviceState.presenceHours / 24) + " gün" : deviceState.presenceHours + " saat"}</span>
+      </div>
+      <div class="pt-wrap">
+        <div class="pt-bar">${rects}</div>
+        <div class="pt-tip" id="presTip" style="display:none"></div>
+      </div>
+      <div class="pt-axis">${ticks}</div>
+      <div class="pt-legend">
+        <span><i class="pt-dot online"></i>Çevrimiçi</span>
+        <span><i class="pt-dot offline"></i>Çevrimdışı</span>
+        <span><i class="pt-dot unknown"></i>Bilinmiyor</span>
+      </div>
+      ${transitions === 0 && !data.priorStatus ? `<div class="muted" style="margin-top:10px;font-size:12px">Bu cihaz için henüz kayıtlı durum değişimi yok. Cihaz online/offline oldukça geçmiş burada birikir.</div>` : ""}`;
   }
 
   async function switchAction(sn, val) {
