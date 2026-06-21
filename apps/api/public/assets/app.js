@@ -539,15 +539,15 @@
 
   async function renderOverview(silent) {
     if (!silent) view.innerHTML = overviewSkeleton();
-    let ov, offline, alarms, owing, cmdAlarms, projects, models;
+    let ov, offline, alarms, owing, cmdAlarms, tree, models;
     try {
-      [ov, offline, alarms, owing, cmdAlarms, projects, models] = await Promise.all([
+      [ov, offline, alarms, owing, cmdAlarms, tree, models] = await Promise.all([
         api("GET", `/fleet/overview?window=${state.settings.onlineWindowSec}`),
         api("GET", `/fleet/devices?online=false&limit=6&window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?alarm=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?owing=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/alarms?status=open&limit=6`).catch(() => ({ items: [] })),
-        api("GET", `/fleet/projects?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
+        api("GET", `/fleet/customer-tree?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/models`).catch(() => ({ items: [] }))
       ]);
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
@@ -564,37 +564,53 @@
       money: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 2v20M16 6.5C16 5 14.2 4 12 4S8 5 8 6.7s1.8 2.3 4 2.8 4 1.3 4 3-1.8 2.7-4 2.7-4-1-4-2.5"/></svg>`,
       shield: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3Z"/></svg>`
     };
-    // Per-project rollup cards (same window aesthetic, multi-stat body).
-    const projItems = (projects && projects.items) || [];
-    const projCard = (p) => {
-      const name = p.projectName && String(p.projectName).trim() ? p.projectName : "Atanmamış";
-      const alarmCls = p.openAlarms ? " has-alarm" : "";
-      const initials = name.slice(0, 2).toUpperCase();
+    // Customer → project (building) hierarchy as an expandable tree.
+    const treeItems = (tree && tree.items) || [];
+    const totalProjects = treeItems.reduce((s, c) => s + ((c.projects && c.projects.length) || 0), 0);
+    const miniStat = (v, l, cls) => `<span class="tn-stat ${cls || ""}"><b>${nf(v)}</b>${l}</span>`;
+    const projLeaf = (c, p) => {
+      const pname = p.projectName && String(p.projectName).trim() ? p.projectName : "Atanmamış bina";
       const projKey = (p.projectName && String(p.projectName).trim()) ? p.projectName : "__none__";
-      return `<div class="proj-card clickable${alarmCls}" data-project="${esc(projKey)}" data-project-label="${esc(name)}" title="${esc(name)} cihazlarını gör">
-        <div class="proj-head">
-          <span class="proj-badge">${esc(initials)}</span>
-          <div class="proj-meta">
-            <span class="proj-name" title="${esc(name)}">${esc(name)}</span>
-            <span class="proj-sub">${p.customerSince ? "Müşteri kaydı: " + new Date(p.customerSince).toLocaleDateString("tr-TR") : "Müşteri atanmamış"}${p.customerCount > 1 ? " · " + nf(p.customerCount) + " müşteri" : ""}</span>
-          </div>
-          ${p.openAlarms ? `<span class="pill bad"><span class="pdot"></span>${nf(p.openAlarms)}</span>` : ""}
-        </div>
-        <div class="proj-stats">
-          <div class="ps"><div class="ps-v">${nf(p.total)}</div><div class="ps-l">Sayaç</div></div>
-          <div class="ps"><div class="ps-v on">${nf(p.online)}</div><div class="ps-l">Aktif</div></div>
-          <div class="ps"><div class="ps-v ${p.offline ? "off" : ""}">${nf(p.offline)}</div><div class="ps-l">Çevrim Dışı</div></div>
-        </div>
-        <div class="proj-foot">
-          <div class="pf"><span class="pf-l">Toplam Enerji</span><span class="pf-v">${nf(p.totalEnergyKwh, 1)}<small>kWh</small></span></div>
-          <div class="pf right"><span class="pf-l">Alarm</span><span class="pf-v ${p.openAlarms ? "bad" : ""}">${nf(p.openAlarms)}</span></div>
-        </div>
+      const cidAttr = c.customerId ? ` data-customer="${esc(c.customerId)}" data-customer-label="${esc(c.customerName || "")}"` : "";
+      return `<div class="tree-leaf clickable${p.openAlarms ? " has-alarm" : ""}" data-project="${esc(projKey)}" data-project-label="${esc(pname)}"${cidAttr} title="${esc(pname)} cihazlarını gör">
+        <span class="tl-ic"><svg viewBox="0 0 24 24" class="ic"><path d="M3 21h18M6 21V8l6-4 6 4v13M10 12h4M10 16h4"/></svg></span>
+        <span class="tl-name" title="${esc(pname)}">${esc(pname)}</span>
+        <span class="tl-stats">
+          ${miniStat(p.total, "sayaç")}
+          ${miniStat(p.online, "aktif", "on")}
+          ${p.offline ? miniStat(p.offline, "çd", "off") : ""}
+          <span class="tn-stat"><b>${nf(p.totalEnergyKwh, 1)}</b>kWh</span>
+          ${p.openAlarms ? `<span class="pill bad sm"><span class="pdot"></span>${nf(p.openAlarms)}</span>` : ""}
+        </span>
       </div>`;
     };
-    const projHtml = projItems.length
+    const custNode = (c, i) => {
+      const cname = c.customerName && String(c.customerName).trim() ? c.customerName : "Atanmamış müşteri";
+      const initials = cname.slice(0, 2).toUpperCase();
+      const open = i === 0 ? " open" : "";
+      const since = c.customerSince ? "Kayıt: " + new Date(c.customerSince).toLocaleDateString("tr-TR") : "";
+      const nProj = (c.projects && c.projects.length) || 0;
+      return `<div class="tree-node${open}${c.openAlarms ? " has-alarm" : ""}">
+        <div class="tn-head" role="button" tabindex="0">
+          <span class="tn-caret"><svg viewBox="0 0 24 24" class="ic"><path d="m9 6 6 6-6 6"/></svg></span>
+          <span class="tn-badge">${esc(initials)}</span>
+          <span class="tn-meta">
+            <span class="tn-name" title="${esc(cname)}">${esc(cname)}</span>
+            <span class="tn-sub">${esc(since)}${since ? " · " : ""}${nf(nProj)} bina</span>
+          </span>
+          <span class="tn-stats">
+            ${miniStat(c.total, "sayaç")}
+            ${miniStat(c.online, "aktif", "on")}
+            ${c.openAlarms ? `<span class="pill bad sm"><span class="pdot"></span>${nf(c.openAlarms)}</span>` : ""}
+          </span>
+        </div>
+        <div class="tn-children">${(c.projects || []).map((p) => projLeaf(c, p)).join("")}</div>
+      </div>`;
+    };
+    const projHtml = treeItems.length
       ? `<div class="panel proj-panel">
-           <div class="panel-head"><h2>Projeler</h2><div class="panel-actions"><span class="panel-note">${nf(projItems.length)} proje · sayaç, durum, enerji ve alarm</span></div></div>
-           <div class="panel-pad"><div class="proj-grid">${projItems.map(projCard).join("")}</div></div>
+           <div class="panel-head"><h2>Müşteriler</h2><div class="panel-actions"><span class="panel-note">${nf(treeItems.length)} müşteri · ${nf(totalProjects)} bina/proje</span></div></div>
+           <div class="panel-pad"><div class="cust-tree">${treeItems.map(custNode).join("")}</div></div>
          </div>`
       : "";
 
@@ -665,9 +681,16 @@
     $$("[data-project]", view).forEach((el) => el.addEventListener("click", () => {
       devicesState.project = el.dataset.project;
       devicesState.projectLabel = el.dataset.projectLabel || el.dataset.project;
+      devicesState.customer = el.dataset.customer || "";
+      devicesState.customerLabel = el.dataset.customerLabel || "";
       devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
       navigate("#/devices");
     }));
+    $$(".cust-tree .tn-head", view).forEach((el) => {
+      const toggle = () => el.parentElement.classList.toggle("open");
+      el.addEventListener("click", toggle);
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+    });
     state.refresher = renderOverview;
   }
 

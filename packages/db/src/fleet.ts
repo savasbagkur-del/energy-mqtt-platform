@@ -156,6 +156,101 @@ export const getProjectOverview = async (
   });
 };
 
+export interface CustomerProjectNode {
+  /** project_name; null = devices with no project assigned. */
+  projectName: string | null;
+  total: number;
+  online: number;
+  offline: number;
+  totalEnergyKwh: number;
+  openAlarms: number;
+}
+
+export interface CustomerTreeRow {
+  /** customers.id as string; null = devices not linked to any customer yet. */
+  customerId: string | null;
+  customerName: string | null;
+  customerSince: string | null;
+  total: number;
+  online: number;
+  offline: number;
+  totalEnergyKwh: number;
+  openAlarms: number;
+  /** Buildings / projects owned by this customer (a customer may have several). */
+  projects: CustomerProjectNode[];
+}
+
+/**
+ * Customer → project hierarchy for the admin overview tree. One grouped query over
+ * (customer, project_name); rolled up per customer in JS. Devices with no customer fall into a
+ * trailing null bucket so nothing is hidden. Scales with the fleet, not the browser.
+ */
+export const getCustomerProjectTree = async (
+  pool: Pool,
+  onlineWindowSec = 300
+): Promise<CustomerTreeRow[]> => {
+  const win = String(clampInt(onlineWindowSec, 300, 30, 86400));
+  const res = await pool.query(
+    `SELECT
+       d.customer_id,
+       c.name AS customer_name,
+       c.created_at AS customer_since,
+       d.project_name,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE ls.last_seen_at >= NOW() - ($1 || ' seconds')::interval) AS online,
+       COALESCE(SUM(ls.energy_import_kwh), 0) AS total_energy_kwh,
+       COALESCE(SUM(COALESCE(oa.cnt, 0)), 0) AS open_alarms
+     FROM devices d
+     LEFT JOIN device_latest_state ls ON ls.sn = d.sn
+     LEFT JOIN customers c ON c.id = d.customer_id
+     LEFT JOIN (
+       SELECT sn, COUNT(*) AS cnt FROM device_alarms WHERE status = 'open' GROUP BY sn
+     ) oa ON oa.sn = d.sn
+     WHERE d.registry_status IN ('registered', 'auto')
+     GROUP BY d.customer_id, c.name, c.created_at, d.project_name
+     ORDER BY (d.customer_id IS NULL), c.name NULLS LAST, COUNT(*) DESC, d.project_name NULLS LAST`,
+    [win]
+  );
+  const byCustomer = new Map<string, CustomerTreeRow>();
+  for (const r of res.rows) {
+    const cid = r.customer_id == null ? null : String(r.customer_id);
+    const key = cid ?? "__none__";
+    let cust = byCustomer.get(key);
+    if (!cust) {
+      cust = {
+        customerId: cid,
+        customerName: (r.customer_name as string | null) ?? null,
+        customerSince: (r.customer_since as string | null) ?? null,
+        total: 0,
+        online: 0,
+        offline: 0,
+        totalEnergyKwh: 0,
+        openAlarms: 0,
+        projects: []
+      };
+      byCustomer.set(key, cust);
+    }
+    const total = int(r.total);
+    const online = int(r.online);
+    const energy = num(r.total_energy_kwh) ?? 0;
+    const alarms = int(r.open_alarms);
+    cust.projects.push({
+      projectName: (r.project_name as string | null) ?? null,
+      total,
+      online,
+      offline: Math.max(total - online, 0),
+      totalEnergyKwh: energy,
+      openAlarms: alarms
+    });
+    cust.total += total;
+    cust.online += online;
+    cust.offline += Math.max(total - online, 0);
+    cust.totalEnergyKwh += energy;
+    cust.openAlarms += alarms;
+  }
+  return Array.from(byCustomer.values());
+};
+
 export interface ModelOverviewRow {
   /** device model (e.g. ADL200, ADL300); null bucket = model not yet derived. */
   model: string | null;
