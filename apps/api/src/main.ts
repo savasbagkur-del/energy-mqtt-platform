@@ -41,6 +41,13 @@ import {
   createPropertyType,
   listCustomers,
   createCustomer,
+  listCustomersOverview,
+  updateCustomer,
+  listApiKeys,
+  createApiKey,
+  revokeApiKey,
+  findActiveApiKeyByHash,
+  touchApiKeyUsage,
   registerDevice,
   bulkRegisterDevices,
   getDeviceRegistry,
@@ -218,18 +225,45 @@ const verifyPassword = (password: string, stored: string): boolean => {
   }
 };
 
+type AuthCustomer = { id: string; name: string; keyId: string };
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       authUser?: AuthUser;
+      customer?: AuthCustomer;
     }
   }
 }
 
+const sha256Hex = (s: string): string => crypto.createHash("sha256").update(s).digest("hex");
+
 app.use((req, res, next) => {
   if (OPEN_PATHS.has(req.path)) {
     next();
+    return;
+  }
+  // Customer integration namespace: authenticated by a per-customer API key (X-API-Key or Bearer),
+  // resolved against customer_api_keys. These callers are scoped to their own customer's data.
+  if (req.path.startsWith("/api/v1/")) {
+    const headerKey = req.get("x-api-key");
+    const bearer = /^Bearer\s+(.+)$/i.exec(req.get("authorization") ?? "")?.[1];
+    const key = (headerKey && headerKey.trim()) || bearer;
+    if (!key) {
+      res.status(401).json({ error: "unauthorized", detail: "API key required (X-API-Key header)" });
+      return;
+    }
+    findActiveApiKeyByHash(dbPool, sha256Hex(key))
+      .then((row) => {
+        if (!row) {
+          res.status(401).json({ error: "unauthorized", detail: "invalid or revoked API key" });
+          return;
+        }
+        req.customer = { id: row.customer_id, name: row.customer_name, keyId: row.id };
+        void touchApiKeyUsage(dbPool, row.id).catch(() => undefined);
+        next();
+      })
+      .catch(() => res.status(500).json({ error: "auth_failed" }));
     return;
   }
   const header = req.get("authorization") ?? "";
@@ -1326,6 +1360,138 @@ app.post("/customers", async (req, res) => {
   }
 });
 
+// Customers screen: each customer enriched with device counts + API-key/usage so the UI can
+// show how the customer is connected (panel / api / both).
+app.get("/customers/overview", async (req, res) => {
+  try {
+    const win = typeof req.query.window === "string" ? Number(req.query.window) : 300;
+    res.status(200).json({ items: await listCustomersOverview(dbPool, Number.isFinite(win) ? win : 300) });
+  } catch (error) {
+    console.error("[api] failed to list customers overview", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_customers_overview" });
+  }
+});
+
+// Edit a customer (name/contact + whether they use our panel).
+app.patch("/customers/:id", requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "id_required" });
+    return;
+  }
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+  const patch: { name?: string; phone?: string | null; email?: string | null; notes?: string | null; panelEnabled?: boolean } = {};
+  if (typeof body.name === "string" && body.name.trim()) patch.name = body.name.trim();
+  if (typeof body.phone === "string") patch.phone = body.phone;
+  if (typeof body.email === "string") patch.email = body.email;
+  if (typeof body.notes === "string") patch.notes = body.notes;
+  const pe = body.panelEnabled ?? body.panel_enabled;
+  if (typeof pe === "boolean") patch.panelEnabled = pe;
+  try {
+    const row = await updateCustomer(dbPool, id, patch);
+    if (!row) {
+      res.status(404).json({ error: "customer_not_found" });
+      return;
+    }
+    res.status(200).json(row);
+  } catch (error) {
+    console.error("[api] failed to update customer", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_update_customer" });
+  }
+});
+
+// List a customer's API keys (never exposes the secret).
+app.get("/customers/:id/api-keys", requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "id_required" });
+    return;
+  }
+  try {
+    res.status(200).json({ items: await listApiKeys(dbPool, id) });
+  } catch (error) {
+    console.error("[api] failed to list api keys", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_api_keys" });
+  }
+});
+
+// Mint a new API key. The plaintext is returned ONCE; only its hash is stored.
+app.post("/customers/:id/api-keys", requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "id_required" });
+    return;
+  }
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+  const label = typeof body.label === "string" && body.label.trim() ? body.label.trim() : null;
+  try {
+    const secret = `v4a_${crypto.randomBytes(24).toString("hex")}`;
+    const row = await createApiKey(dbPool, {
+      customerId: id,
+      label,
+      keyPrefix: secret.slice(0, 12),
+      keyHash: sha256Hex(secret)
+    });
+    // `key` is the only time the plaintext is ever available.
+    res.status(201).json({ ...row, key: secret });
+  } catch (error) {
+    console.error("[api] failed to create api key", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_create_api_key" });
+  }
+});
+
+// Revoke (disable) an API key.
+app.post("/api-keys/:id/revoke", requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "id_required" });
+    return;
+  }
+  try {
+    const row = await revokeApiKey(dbPool, id);
+    if (!row) {
+      res.status(404).json({ error: "api_key_not_found" });
+      return;
+    }
+    res.status(200).json(row);
+  } catch (error) {
+    console.error("[api] failed to revoke api key", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_revoke_api_key" });
+  }
+});
+
+// ---- Customer integration API (v1): authenticated by a per-customer API key, scoped to that
+// customer's own devices only. This is the surface a customer's own software calls.
+app.get("/api/v1/me", (req, res) => {
+  if (!req.customer) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  res.status(200).json({ customer: { id: req.customer.id, name: req.customer.name } });
+});
+
+app.get("/api/v1/devices", async (req, res) => {
+  if (!req.customer) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  try {
+    const onlineParam = typeof req.query.online === "string" ? req.query.online : null;
+    const filter: import("@communication/db").ListFleetDevicesFilter = {
+      customerId: req.customer.id,
+      search: typeof req.query.q === "string" ? req.query.q : null,
+      online: onlineParam === "true" ? true : onlineParam === "false" ? false : null
+    };
+    if (typeof req.query.limit === "string") filter.limit = Number(req.query.limit);
+    if (typeof req.query.offset === "string") filter.offset = Number(req.query.offset);
+    const result = await listFleetDevices(dbPool, filter);
+    res.status(200).json({ count: result.items.length, total: result.total, items: result.items });
+  } catch (error) {
+    console.error("[api] v1 list devices failed", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_devices" });
+  }
+});
+
 // Detailed registry list with optional ?status= and ?q= filters.
 app.get("/registry/devices", async (req, res) => {
   try {
@@ -1740,6 +1906,7 @@ app.get("/fleet/devices", async (req, res) => {
     if (req.query.alarm === "true") filter.alarm = true;
     if (req.query.owing === "true") filter.owing = true;
     if (typeof req.query.project === "string" && req.query.project) filter.project = req.query.project;
+    if (typeof req.query.customer === "string" && req.query.customer) filter.customerId = req.query.customer;
     if (typeof req.query.window === "string") filter.onlineWindowSec = Number(req.query.window);
     if (typeof req.query.limit === "string") filter.limit = Number(req.query.limit);
     if (typeof req.query.offset === "string") filter.offset = Number(req.query.offset);

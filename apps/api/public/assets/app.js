@@ -669,7 +669,7 @@
   }
 
   // ================================================================ DEVICES TABLE
-  const devicesState = { q: "", status: "", online: "", project: "", projectLabel: "", page: 0, pageSize: 50, total: 0 };
+  const devicesState = { q: "", status: "", online: "", project: "", projectLabel: "", customer: "", customerLabel: "", page: 0, pageSize: 50, total: 0 };
 
   async function renderDevices(silent) {
     if (!silent) {
@@ -690,6 +690,7 @@
             <button data-v="" class="active">Hepsi</button><button data-v="true">Çevrimiçi</button><button data-v="false">Çevrimdışı</button>
           </div>
           ${devicesState.project ? `<button class="chip-filter" id="clearProject" title="Proje filtresini kaldır">Proje: <b>${esc(devicesState.projectLabel || devicesState.project)}</b> <span class="x">✕</span></button>` : ""}
+          ${devicesState.customer ? `<button class="chip-filter" id="clearCustomer" title="Müşteri filtresini kaldır">Müşteri: <b>${esc(devicesState.customerLabel || devicesState.customer)}</b> <span class="x">✕</span></button>` : ""}
           <div class="spacer"></div>
           <input id="devSearch" placeholder="SN / etiket / müşteri / şehir ara…" style="width:280px" value="${esc(devicesState.q)}" />
         </div>
@@ -710,6 +711,8 @@
       $("#devExport").addEventListener("click", exportDevicesCsv);
       const clrProj = $("#clearProject");
       if (clrProj) clrProj.addEventListener("click", () => { devicesState.project = ""; devicesState.projectLabel = ""; devicesState.page = 0; renderDevices(); });
+      const clrCust = $("#clearCustomer");
+      if (clrCust) clrCust.addEventListener("click", () => { devicesState.customer = ""; devicesState.customerLabel = ""; devicesState.page = 0; renderDevices(); });
     }
     await loadDevices(silent);
     state.refresher = (s) => loadDevices(true);
@@ -730,6 +733,7 @@
     if (devicesState.status) p.set("status", devicesState.status);
     if (devicesState.online) p.set("online", devicesState.online);
     if (devicesState.project) p.set("project", devicesState.project);
+    if (devicesState.customer) p.set("customer", devicesState.customer);
     p.set("window", state.settings.onlineWindowSec);
     p.set("limit", devicesState.pageSize);
     p.set("offset", devicesState.page * devicesState.pageSize);
@@ -1184,6 +1188,153 @@
     catch (e) { toast("Hata", e.message, "error"); }
   }
 
+  // ================================================================ CUSTOMERS
+  // How a customer is connected: "panel" (uses our UI), "api" (their software via a key), or both.
+  function connBadges(c) {
+    const recent = c.last_api_used_at && (Date.now() - new Date(c.last_api_used_at).getTime() < 7 * 864e5);
+    const out = [];
+    if (c.panel_enabled) out.push(`<span class="conn-badge panel">Panel</span>`);
+    if (c.active_key_count > 0) out.push(`<span class="conn-badge api ${recent ? "live" : ""}">API${recent ? " · aktif" : ""}</span>`);
+    if (!out.length) out.push(`<span class="conn-badge none">Bağlı değil</span>`);
+    return out.join("");
+  }
+
+  async function renderCustomers(silent) {
+    let res;
+    try { res = await api("GET", `/customers/overview?window=${state.settings.onlineWindowSec}`); }
+    catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
+    const items = res.items || [];
+    const total = items.length;
+    const apiCount = items.filter((c) => c.active_key_count > 0).length;
+    const panelCount = items.filter((c) => c.panel_enabled).length;
+    view.innerHTML = `
+      <div class="page-head">
+        <div><h1>Müşteriler</h1><div class="sub">${nf(total)} müşteri · ${nf(panelCount)} panel · ${nf(apiCount)} API entegrasyonu</div></div>
+        <div class="head-actions"><button class="btn primary" id="cuNew"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Yeni müşteri</button></div>
+      </div>
+      <div class="panel"><div class="table-wrap"><table class="data">
+        <thead><tr>
+          <th>Müşteri</th><th>İletişim</th><th class="num">Sayaç</th><th class="num">Çevrimiçi</th>
+          <th>Bağlantı</th><th>Son API kullanımı</th><th></th>
+        </tr></thead>
+        <tbody>${total ? items.map((c) => `
+          <tr data-cust="${esc(c.id)}">
+            <td><b>${esc(c.name)}</b></td>
+            <td class="muted">${esc(c.phone || c.email || "—")}</td>
+            <td class="num">${nf(c.device_count)}</td>
+            <td class="num">${c.device_count ? nf(c.online_count) : "—"}</td>
+            <td>${connBadges(c)}</td>
+            <td class="muted">${c.last_api_used_at ? timeAgo(c.last_api_used_at) : "—"}</td>
+            <td class="row-actions">
+              <button class="btn sm" data-keys="${esc(c.id)}">API anahtarları${c.active_key_count ? ` (${nf(c.active_key_count)})` : ""}</button>
+              <button class="btn sm ghost" data-devs="${esc(c.id)}" data-name="${esc(c.name)}">Cihazlar →</button>
+            </td>
+          </tr>`).join("") : `<tr><td colspan="7" class="empty">Henüz müşteri yok. “Yeni müşteri” ile ekleyin.</td></tr>`}</tbody>
+      </table></div></div>`;
+
+    $("#cuNew").addEventListener("click", openCustomerModal);
+    $$("[data-keys]", view).forEach((b) => b.addEventListener("click", () => {
+      const c = items.find((x) => String(x.id) === b.dataset.keys);
+      if (c) openApiKeysModal(c);
+    }));
+    $$("[data-devs]", view).forEach((b) => b.addEventListener("click", () => {
+      devicesState.project = ""; devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
+      devicesState.customer = b.dataset.devs; devicesState.customerLabel = b.dataset.name || "";
+      navigate("#/devices");
+    }));
+    state.refresher = renderCustomers;
+  }
+
+  function openCustomerModal() {
+    modalMount.innerHTML = `
+      <div class="modal-backdrop"><div class="modal">
+        <h3>Yeni müşteri</h3>
+        <div class="form-grid">
+          <label>Ad / Unvan <input id="cuName" placeholder="Örn. Volt Enerji A.Ş." /></label>
+          <label>Telefon <input id="cuPhone" placeholder="(opsiyonel)" /></label>
+          <label>E-posta <input id="cuEmail" placeholder="(opsiyonel)" /></label>
+          <label class="check"><input type="checkbox" id="cuPanel" checked /> <span>Bizim paneli kullanır (Panel erişimi)</span></label>
+        </div>
+        <div class="modal-actions"><button class="btn" id="cuCancel">Vazgeç</button><button class="btn primary" id="cuSave">Kaydet</button></div>
+      </div></div>`;
+    $("#cuCancel").addEventListener("click", closeModal);
+    $("#cuSave").addEventListener("click", async () => {
+      const name = $("#cuName").value.trim();
+      if (!name) { toast("Eksik", "Müşteri adı gerekli", "error"); return; }
+      try {
+        const created = await api("POST", "/customers", {
+          name,
+          phone: $("#cuPhone").value.trim() || null,
+          email: $("#cuEmail").value.trim() || null
+        });
+        // panel_enabled toggle (create defaults true; only PATCH if user unchecked it)
+        if (!$("#cuPanel").checked && created && created.id) {
+          await api("PATCH", `/customers/${encodeURIComponent(created.id)}`, { panelEnabled: false }).catch(() => {});
+        }
+        toast("Müşteri eklendi", name, "success");
+        closeModal(); renderCustomers();
+      } catch (e) { toast("Hata", e.message, "error"); }
+    });
+  }
+
+  async function openApiKeysModal(customer) {
+    const render = (keys, freshKey) => {
+      modalMount.innerHTML = `
+        <div class="modal-backdrop"><div class="modal lg">
+          <h3>API anahtarları · ${esc(customer.name)}</h3>
+          <p class="muted">Müşteri kendi yazılımını bu anahtarla bağlar. Anahtar yalnızca <strong>oluşturma anında bir kez</strong> gösterilir; sistemde yalnızca özeti (hash) saklanır.</p>
+          ${freshKey ? `<div class="key-reveal">
+            <div class="key-reveal-head">✓ Yeni anahtar oluşturuldu — şimdi kopyalayın, tekrar gösterilmez</div>
+            <div class="key-reveal-row"><code id="freshKey">${esc(freshKey)}</code><button class="btn sm primary" id="copyKey">Kopyala</button></div>
+          </div>` : ""}
+          <div class="panel-inset"><div class="form-grid two">
+            <label>Etiket <input id="kLabel" placeholder="Örn. Üretim entegrasyonu" /></label>
+            <button class="btn primary" id="kCreate" style="align-self:end">+ Anahtar oluştur</button>
+          </div></div>
+          <div class="table-wrap"><table class="data">
+            <thead><tr><th>Etiket</th><th>Önek</th><th>Durum</th><th>Son kullanım</th><th>Oluşturulma</th><th></th></tr></thead>
+            <tbody>${keys.length ? keys.map((k) => `<tr>
+              <td>${esc(k.label || "—")}</td>
+              <td class="mono">${esc(k.key_prefix)}…</td>
+              <td>${k.is_active ? `<span class="pill on"><span class="pdot"></span>Aktif</span>` : `<span class="pill off"><span class="pdot"></span>İptal</span>`}</td>
+              <td class="muted">${k.last_used_at ? timeAgo(k.last_used_at) : "hiç"}</td>
+              <td class="muted">${timeAgo(k.created_at)}</td>
+              <td class="row-actions">${k.is_active ? `<button class="btn sm danger" data-revoke="${esc(k.id)}">İptal et</button>` : ""}</td>
+            </tr>`).join("") : `<tr><td colspan="6" class="empty">Henüz anahtar yok.</td></tr>`}</tbody>
+          </table></div>
+          <div class="modal-actions"><button class="btn" id="kClose">Kapat</button></div>
+        </div></div>`;
+      $("#kClose").addEventListener("click", () => { closeModal(); renderCustomers(); });
+      const copyBtn = $("#copyKey");
+      if (copyBtn) copyBtn.addEventListener("click", () => {
+        const t = $("#freshKey").textContent;
+        navigator.clipboard?.writeText(t).then(() => toast("Kopyalandı", "Anahtar panoya kopyalandı", "success"))
+          .catch(() => toast("Kopyalanamadı", "Elle seçip kopyalayın", "error"));
+      });
+      $("#kCreate").addEventListener("click", async () => {
+        const label = $("#kLabel").value.trim() || null;
+        try {
+          const created = await api("POST", `/customers/${encodeURIComponent(customer.id)}/api-keys`, { label });
+          const list = await api("GET", `/customers/${encodeURIComponent(customer.id)}/api-keys`);
+          render(list.items || [], created.key);
+        } catch (e) { toast("Hata", e.message, "error"); }
+      });
+      $$("[data-revoke]", modalMount).forEach((b) => b.addEventListener("click", async () => {
+        if (!confirm("Bu anahtar iptal edilsin mi? Bu anahtarı kullanan entegrasyon erişimini kaybeder.")) return;
+        try {
+          await api("POST", `/api-keys/${encodeURIComponent(b.dataset.revoke)}/revoke`);
+          const list = await api("GET", `/customers/${encodeURIComponent(customer.id)}/api-keys`);
+          toast("İptal edildi", "Anahtar devre dışı", "success");
+          render(list.items || [], null);
+        } catch (e) { toast("Hata", e.message, "error"); }
+      }));
+    };
+    try {
+      const list = await api("GET", `/customers/${encodeURIComponent(customer.id)}/api-keys`);
+      render(list.items || [], null);
+    } catch (e) { toast("Hata", e.message, "error"); }
+  }
+
   // ================================================================ ALARMS
   const alarmsState = { filter: "all" };
   async function renderAlarms(silent) {
@@ -1598,6 +1749,7 @@
       switch (r.name) {
         case "overview": await renderOverview(); break;
         case "devices": await renderDevices(); break;
+        case "customers": await renderCustomers(); break;
         case "device": if (r.param) await renderDevice(r.param); else navigate("#/devices"); break;
         case "alarms": await renderAlarms(); break;
         case "registry": await renderRegistry(); break;

@@ -210,6 +210,8 @@ export interface ListFleetDevicesFilter {
   owing?: boolean | null;
   /** Filter by project_name. Use "__none__" for devices with no project assigned. */
   project?: string | null;
+  /** Filter by owning customer id (used by the customer-scoped API). */
+  customerId?: string | null;
   onlineWindowSec?: number;
   limit?: number;
   offset?: number;
@@ -290,6 +292,10 @@ export const listFleetDevices = async (
       params.push(filter.project);
       where.push(`d.project_name = $${params.length}`);
     }
+  }
+  if (filter.customerId) {
+    params.push(filter.customerId);
+    where.push(`d.customer_id = $${params.length}`);
   }
 
   const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";

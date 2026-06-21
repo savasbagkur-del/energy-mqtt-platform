@@ -512,7 +512,25 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 /* big modal (forms) */
 .modal.lg { width: min(780px, 100%); max-height: 90vh; overflow-y: auto; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 12px 14px; }
+.form-grid.two { grid-template-columns: 1fr auto; }
 .form-grid .full { grid-column: 1 / -1; }
+.form-grid label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.form-grid label.check { flex-direction: row; align-items: center; color: var(--txt-2); font-weight: 500; }
+.form-grid input { width: 100%; }
+
+/* customer connection badges */
+.conn-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; margin-right: 5px; border: 1px solid transparent; }
+.conn-badge.panel { background: var(--brand-soft); color: var(--brand-text); }
+.conn-badge.api { background: var(--panel-3); color: var(--txt-2); }
+.conn-badge.api.live { background: var(--on-soft); color: var(--on-text); }
+.conn-badge.none { background: transparent; color: var(--muted); border-color: var(--line); }
+
+/* one-time API key reveal */
+.panel-inset { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 4px 0 16px; }
+.key-reveal { background: var(--on-soft); border: 1px solid color-mix(in srgb, var(--on) 35%, transparent); border-radius: 12px; padding: 13px 15px; margin-bottom: 16px; }
+.key-reveal-head { font-size: 12.5px; font-weight: 700; color: var(--on-text); margin-bottom: 9px; }
+.key-reveal-row { display: flex; align-items: center; gap: 10px; }
+.key-reveal-row code { flex: 1; font-family: ui-monospace, monospace; font-size: 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; word-break: break-all; }
 
 /* ============================================================ Toasts */
 .toasts { position: fixed; bottom: 22px; right: 22px; display: flex; flex-direction: column; gap: 10px; z-index: 200; }

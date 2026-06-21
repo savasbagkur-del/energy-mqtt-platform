@@ -1,0 +1,198 @@
+import type { Pool } from "pg";
+
+const int = (v: unknown): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+export interface CustomerOverviewRow {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  panel_enabled: boolean;
+  device_count: number;
+  online_count: number;
+  active_key_count: number;
+  last_api_used_at: string | null;
+  created_at: string;
+}
+
+/**
+ * Customer list enriched with device counts and API-key/usage info so the UI can derive each
+ * customer's connection type (panel / api / both) in a single grouped query.
+ */
+export const listCustomersOverview = async (
+  pool: Pool,
+  onlineWindowSec = 300
+): Promise<CustomerOverviewRow[]> => {
+  const win = Math.max(30, Math.min(86400, Math.floor(onlineWindowSec)));
+  const res = await pool.query(
+    `SELECT
+       c.id, c.name, c.phone, c.email, c.notes, c.panel_enabled, c.created_at,
+       COUNT(DISTINCT d.sn) AS device_count,
+       COUNT(DISTINCT d.sn) FILTER (
+         WHERE ls.last_seen_at >= NOW() - INTERVAL '${win} seconds'
+       ) AS online_count,
+       COUNT(DISTINCT k.id) FILTER (WHERE k.is_active) AS active_key_count,
+       MAX(k.last_used_at) AS last_api_used_at
+     FROM customers c
+     LEFT JOIN devices d ON d.customer_id = c.id
+     LEFT JOIN device_latest_state ls ON ls.sn = d.sn
+     LEFT JOIN customer_api_keys k ON k.customer_id = c.id
+     GROUP BY c.id
+     ORDER BY c.name ASC`
+  );
+  return res.rows.map((r) => ({
+    id: String(r.id),
+    name: String(r.name),
+    phone: (r.phone as string | null) ?? null,
+    email: (r.email as string | null) ?? null,
+    notes: (r.notes as string | null) ?? null,
+    panel_enabled: r.panel_enabled === true,
+    device_count: int(r.device_count),
+    online_count: int(r.online_count),
+    active_key_count: int(r.active_key_count),
+    last_api_used_at: (r.last_api_used_at as string | null) ?? null,
+    created_at: String(r.created_at)
+  }));
+};
+
+export interface CustomerDetailRow {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  panel_enabled: boolean;
+  created_at: string;
+}
+
+const toCustomerDetail = (r: Record<string, unknown>): CustomerDetailRow => ({
+  id: String(r.id),
+  name: String(r.name),
+  phone: (r.phone as string | null) ?? null,
+  email: (r.email as string | null) ?? null,
+  notes: (r.notes as string | null) ?? null,
+  panel_enabled: r.panel_enabled === true,
+  created_at: String(r.created_at)
+});
+
+export const updateCustomer = async (
+  pool: Pool,
+  id: string,
+  patch: { name?: string; phone?: string | null; email?: string | null; notes?: string | null; panelEnabled?: boolean }
+): Promise<CustomerDetailRow | null> => {
+  const res = await pool.query(
+    `UPDATE customers SET
+       name = COALESCE($2, name),
+       phone = COALESCE($3, phone),
+       email = COALESCE($4, email),
+       notes = COALESCE($5, notes),
+       panel_enabled = COALESCE($6, panel_enabled),
+       updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, name, phone, email, notes, panel_enabled, created_at`,
+    [
+      id,
+      patch.name ?? null,
+      patch.phone ?? null,
+      patch.email ?? null,
+      patch.notes ?? null,
+      patch.panelEnabled ?? null
+    ]
+  );
+  return res.rows[0] ? toCustomerDetail(res.rows[0]) : null;
+};
+
+// ------------------------------------------------------------------ API keys
+
+export interface ApiKeyRow {
+  id: string;
+  customer_id: string;
+  label: string | null;
+  key_prefix: string;
+  is_active: boolean;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+/** Public shape — never exposes key_hash. */
+const toApiKey = (r: Record<string, unknown>): ApiKeyRow => ({
+  id: String(r.id),
+  customer_id: String(r.customer_id),
+  label: (r.label as string | null) ?? null,
+  key_prefix: String(r.key_prefix),
+  is_active: r.is_active === true,
+  created_at: String(r.created_at),
+  last_used_at: (r.last_used_at as string | null) ?? null,
+  revoked_at: (r.revoked_at as string | null) ?? null
+});
+
+export const listApiKeys = async (pool: Pool, customerId: string): Promise<ApiKeyRow[]> => {
+  const res = await pool.query(
+    "SELECT id, customer_id, label, key_prefix, is_active, created_at, last_used_at, revoked_at FROM customer_api_keys WHERE customer_id = $1 ORDER BY created_at DESC",
+    [customerId]
+  );
+  return res.rows.map(toApiKey);
+};
+
+export const createApiKey = async (
+  pool: Pool,
+  input: { customerId: string; label: string | null; keyPrefix: string; keyHash: string }
+): Promise<ApiKeyRow> => {
+  const res = await pool.query(
+    `INSERT INTO customer_api_keys (customer_id, label, key_prefix, key_hash)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id, customer_id, label, key_prefix, is_active, created_at, last_used_at, revoked_at`,
+    [input.customerId, input.label, input.keyPrefix, input.keyHash]
+  );
+  return toApiKey(res.rows[0]!);
+};
+
+export const revokeApiKey = async (pool: Pool, id: string): Promise<ApiKeyRow | null> => {
+  const res = await pool.query(
+    `UPDATE customer_api_keys SET is_active = FALSE, revoked_at = NOW()
+     WHERE id = $1
+     RETURNING id, customer_id, label, key_prefix, is_active, created_at, last_used_at, revoked_at`,
+    [id]
+  );
+  return res.rows[0] ? toApiKey(res.rows[0]) : null;
+};
+
+export interface ActiveApiKeyLookup {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+}
+
+/** Resolve an active key by its SHA-256 hash (used by the customer-API auth middleware). */
+export const findActiveApiKeyByHash = async (
+  pool: Pool,
+  keyHash: string
+): Promise<ActiveApiKeyLookup | null> => {
+  const res = await pool.query(
+    `SELECT k.id, k.customer_id, c.name AS customer_name
+     FROM customer_api_keys k
+     JOIN customers c ON c.id = k.customer_id
+     WHERE k.key_hash = $1 AND k.is_active`,
+    [keyHash]
+  );
+  const row = res.rows[0];
+  return row
+    ? { id: String(row.id), customer_id: String(row.customer_id), customer_name: String(row.customer_name) }
+    : null;
+};
+
+/** Throttled last-used stamp: only writes when the previous use is older than the window. */
+export const touchApiKeyUsage = async (pool: Pool, id: string, throttleSec = 60): Promise<void> => {
+  const t = Math.max(0, Math.floor(throttleSec));
+  await pool.query(
+    `UPDATE customer_api_keys
+     SET last_used_at = NOW()
+     WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < NOW() - INTERVAL '${t} seconds')`,
+    [id]
+  );
+};
