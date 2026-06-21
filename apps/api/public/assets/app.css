@@ -576,13 +576,18 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* presence uptime timeline (device detail) */
 .pt-summary { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 12.5px; flex-wrap: wrap; }
-.pt-now { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: 9px; font-weight: 800; font-size: 12.5px; }
-.pt-now .pdot { width: 8px; height: 8px; border-radius: 50%; }
-.pt-now.on { color: var(--on-text); background: color-mix(in srgb, var(--on) 16%, var(--panel)); border: 1px solid color-mix(in srgb, var(--on) 45%, var(--line)); }
-.pt-now.on .pdot { background: var(--on); box-shadow: 0 0 0 3px color-mix(in srgb, var(--on) 28%, transparent); animation: ptpulse 2s ease-in-out infinite; }
+.pt-now { display: inline-flex; align-items: center; gap: 8px; padding: 5px 13px 5px 11px; border-radius: 999px; font-weight: 800; font-size: 12.5px; letter-spacing: .01em; position: relative; overflow: hidden; }
+.pt-now .pt-wifi { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pt-now .pt-wifi .w0 { fill: currentColor; stroke: none; }
+.pt-now.on { color: #fff; background: linear-gradient(135deg, var(--on), color-mix(in srgb, var(--on) 70%, #1b6b3a)); box-shadow: 0 4px 14px color-mix(in srgb, var(--on) 38%, transparent), inset 0 1px 0 rgba(255,255,255,.25); }
+/* sweeping shine for the live state */
+.pt-now.on::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.45) 50%, transparent 70%); transform: translateX(-120%); animation: ptshine 2.8s ease-in-out infinite; }
+.pt-now.on .w1 { animation: ptwave 1.8s ease-in-out infinite; }
+.pt-now.on .w2 { animation: ptwave 1.8s ease-in-out infinite .22s; }
+.pt-now.on .w3 { animation: ptwave 1.8s ease-in-out infinite .44s; }
 .pt-now.off { color: var(--off-text, var(--muted)); background: color-mix(in srgb, var(--off) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--off) 40%, var(--line)); }
-.pt-now.off .pdot { background: var(--off); }
-@keyframes ptpulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@keyframes ptwave { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@keyframes ptshine { 0% { transform: translateX(-120%); } 55%, 100% { transform: translateX(120%); } }
 .pt-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 8px; font-weight: 800; font-size: 12px; }
 .pt-badge.on { color: var(--on-text); background: var(--panel-2); border: 1px solid var(--line); }
 .pt-wrap { position: relative; }

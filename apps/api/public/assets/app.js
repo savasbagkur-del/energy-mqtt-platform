@@ -1399,9 +1399,12 @@
     const uptime = knownMs > 0 ? Math.round((onlineMs / knownMs) * 100) : null;
     const transitions = evs.length;
     const live = !!data.online;
+    const liveIco = live
+      ? `<svg viewBox="0 0 24 24" class="pt-wifi"><path class="w3" d="M2.5 8.5a15 15 0 0 1 19 0"/><path class="w2" d="M5.5 12a10.5 10.5 0 0 1 13 0"/><path class="w1" d="M8.5 15.5a6 6 0 0 1 7 0"/><circle class="w0" cx="12" cy="19" r="1.4"/></svg>`
+      : `<svg viewBox="0 0 24 24" class="pt-wifi"><path d="M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1.4"/><path d="M3 3l18 18"/></svg>`;
     return `
       <div class="pt-summary">
-        <span class="pt-now ${live ? "on" : "off"}"><span class="pdot"></span>Şu an: ${live ? "Çevrimiçi" : "Çevrimdışı"}</span>
+        <span class="pt-now ${live ? "on" : "off"}">${liveIco}Şu an: ${live ? "Çevrimiçi" : "Çevrimdışı"}</span>
         <span class="pt-badge on">Çevrimiçi ${uptime != null ? "%" + uptime : "—"}</span>
         <span class="muted">${nf(transitions)} durum değişimi · son ${deviceState.presenceHours >= 24 ? (deviceState.presenceHours / 24) + " gün" : deviceState.presenceHours + " saat"}</span>
       </div>
