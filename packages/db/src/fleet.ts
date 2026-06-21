@@ -104,6 +104,10 @@ export interface ProjectOverviewRow {
   offline: number;
   totalEnergyKwh: number;
   openAlarms: number;
+  /** Earliest registration date of the customer(s) owning this project's devices. */
+  customerSince: string | null;
+  /** Distinct customers owning devices in this project (a customer may own several projects). */
+  customerCount: number;
 }
 
 /**
@@ -122,9 +126,12 @@ export const getProjectOverview = async (
        COUNT(*) AS total,
        COUNT(*) FILTER (WHERE ls.last_seen_at >= NOW() - ($1 || ' seconds')::interval) AS online,
        COALESCE(SUM(ls.energy_import_kwh), 0) AS total_energy_kwh,
-       COALESCE(SUM(COALESCE(oa.cnt, 0)), 0) AS open_alarms
+       COALESCE(SUM(COALESCE(oa.cnt, 0)), 0) AS open_alarms,
+       MIN(c.created_at) AS customer_since,
+       COUNT(DISTINCT d.customer_id) AS customer_count
      FROM devices d
      LEFT JOIN device_latest_state ls ON ls.sn = d.sn
+     LEFT JOIN customers c ON c.id = d.customer_id
      LEFT JOIN (
        SELECT sn, COUNT(*) AS cnt FROM device_alarms WHERE status = 'open' GROUP BY sn
      ) oa ON oa.sn = d.sn
@@ -142,7 +149,9 @@ export const getProjectOverview = async (
       online,
       offline: Math.max(total - online, 0),
       totalEnergyKwh: num(r.total_energy_kwh) ?? 0,
-      openAlarms: int(r.open_alarms)
+      openAlarms: int(r.open_alarms),
+      customerSince: (r.customer_since as string | null) ?? null,
+      customerCount: int(r.customer_count)
     };
   });
 };

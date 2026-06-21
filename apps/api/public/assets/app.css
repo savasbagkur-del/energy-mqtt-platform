@@ -347,7 +347,9 @@ select { cursor: pointer; }
 .proj-card .proj-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .proj-card .proj-badge { width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid; place-items: center; font-size: 12px; font-weight: 800; letter-spacing: .02em; color: var(--brand-ink); background: var(--brand-grad); box-shadow: 0 4px 12px rgba(84, 110, 122, .26); }
 .proj-card.has-alarm .proj-badge { background: linear-gradient(135deg, var(--bad), var(--warn)); box-shadow: 0 4px 12px rgba(201, 75, 75, .26); }
-.proj-card .proj-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-card .proj-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.proj-card .proj-name { min-width: 0; font-size: 14px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-card .proj-sub { font-size: 11px; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .proj-stats { display: grid; grid-template-columns: repeat(3, 1fr); }
 .proj-stats .ps { text-align: center; position: relative; padding: 2px 2px; }
 .proj-stats .ps + .ps::before { content: ""; position: absolute; left: 0; top: 12%; bottom: 12%; width: 1px; background: var(--line); }

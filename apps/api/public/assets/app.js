@@ -574,7 +574,10 @@
       return `<div class="proj-card clickable${alarmCls}" data-project="${esc(projKey)}" data-project-label="${esc(name)}" title="${esc(name)} cihazlarını gör">
         <div class="proj-head">
           <span class="proj-badge">${esc(initials)}</span>
-          <span class="proj-name" title="${esc(name)}">${esc(name)}</span>
+          <div class="proj-meta">
+            <span class="proj-name" title="${esc(name)}">${esc(name)}</span>
+            <span class="proj-sub">${p.customerSince ? "Müşteri kaydı: " + new Date(p.customerSince).toLocaleDateString("tr-TR") : "Müşteri atanmamış"}${p.customerCount > 1 ? " · " + nf(p.customerCount) + " müşteri" : ""}</span>
+          </div>
           ${p.openAlarms ? `<span class="pill bad"><span class="pdot"></span>${nf(p.openAlarms)}</span>` : ""}
         </div>
         <div class="proj-stats">
