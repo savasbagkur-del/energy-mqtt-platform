@@ -155,9 +155,19 @@
   function showLogin(message) {
     const err = $("#loginError");
     if (message) { err.textContent = message; err.hidden = false; } else { err.hidden = true; }
+    const wasHidden = loginScreen.hidden;
     loginScreen.hidden = false;
     $("#userChip").hidden = true;
-    setTimeout(() => { const u = $("#loginUser"); if (u) u.focus(); }, 40);
+    // Stop any background auto-refresh so repeated 401s don't keep re-triggering this
+    // (which previously yanked the caret out of the password field while typing).
+    state.refresher = null;
+    // Only grab focus when the gate first appears, and never steal it from a field
+    // the user is already typing into.
+    if (wasHidden) setTimeout(() => {
+      const active = document.activeElement;
+      if (active && loginScreen.contains(active)) return;
+      const u = $("#loginUser"); if (u) u.focus();
+    }, 40);
   }
   function hideLogin() { loginScreen.hidden = true; }
 
@@ -181,6 +191,7 @@
   function clearSession() {
     state.token = "";
     state.user = null;
+    state.refresher = null;
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     renderUserChip();
