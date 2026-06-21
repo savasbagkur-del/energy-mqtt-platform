@@ -575,25 +575,35 @@
   function orgChartHtml(root) {
     return `<div class="org-scroll"><ul class="org-chart"><li>${ocNodeHtml(root)}</li></ul></div>`;
   }
-  // Build a node tree from a /fleet/hierarchy customer row (customer → building → unit type).
+  // Build a node tree from a /fleet/hierarchy customer row (customer → site → building → unit type).
   function customerToNode(c) {
     const cname = c.customerName && String(c.customerName).trim() ? c.customerName : "Atanmamış müşteri";
     const since = c.customerSince ? "Kayıt: " + new Date(c.customerSince).toLocaleDateString("tr-TR") : "";
+    const custData = c.customerId ? ` data-customer="${esc(c.customerId)}" data-customer-label="${esc(cname)}"` : "";
+    const nBld = (c.sites || []).reduce((s, st) => s + ((st.buildings && st.buildings.length) || 0), 0);
     return {
       kind: "cust", title: cname, badge: cname.slice(0, 2).toUpperCase(),
-      sub: `${since}${since ? " · " : ""}${nf((c.buildings || []).length)} bina`,
-      stats: c, data: c.customerId ? `data-customer="${esc(c.customerId)}" data-customer-label="${esc(cname)}"` : "",
-      children: (c.buildings || []).map((b) => {
-        const bname = b.buildingName && String(b.buildingName).trim() ? b.buildingName : "Atanmamış bina";
-        const projKey = (b.buildingName && String(b.buildingName).trim()) ? b.buildingName : "__none__";
-        const bdata = `data-project="${esc(projKey)}" data-project-label="${esc(bname)}"${c.customerId ? ` data-customer="${esc(c.customerId)}" data-customer-label="${esc(cname)}"` : ""}`;
+      sub: `${since}${since ? " · " : ""}${nf((c.sites || []).length)} yerleşke · ${nf(nBld)} bina`,
+      stats: c, data: custData.trim(),
+      children: (c.sites || []).map((st) => {
+        const sname = st.siteName && String(st.siteName).trim() ? st.siteName : "Atanmamış yerleşke";
+        const siteKey = (st.siteName && String(st.siteName).trim()) ? st.siteName : "__none__";
+        const sdata = `data-site="${esc(siteKey)}" data-site-label="${esc(sname)}"${custData}`;
         return {
-          kind: "bldg", title: bname, ico: ORG_ICO.bldg, stats: b, data: bdata,
-          children: (b.units || []).map((u) => ({
-            kind: "leaf",
-            title: u.unitLabel && String(u.unitLabel).trim() ? u.unitLabel : "Tip yok",
-            ico: unitIco(u.unitLabel), stats: u, data: bdata
-          }))
+          kind: "campus", title: sname, ico: ORG_ICO.campus, stats: st, data: sdata,
+          children: (st.buildings || []).map((b) => {
+            const bname = b.buildingName && String(b.buildingName).trim() ? b.buildingName : "Atanmamış bina";
+            const projKey = (b.buildingName && String(b.buildingName).trim()) ? b.buildingName : "__none__";
+            const bdata = `data-project="${esc(projKey)}" data-project-label="${esc(bname)}"${custData}`;
+            return {
+              kind: "bldg", title: bname, ico: ORG_ICO.bldg, stats: b, data: bdata,
+              children: (b.units || []).map((u) => ({
+                kind: "leaf",
+                title: u.unitLabel && String(u.unitLabel).trim() ? u.unitLabel : "Tip yok",
+                ico: unitIco(u.unitLabel), stats: u, data: bdata
+              }))
+            };
+          })
         };
       })
     };
@@ -610,9 +620,11 @@
       </div></div>`;
     $("#diagClose").addEventListener("click", closeModal);
     $(".modal-backdrop", modalMount).addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeModal(); });
-    $$("[data-project],[data-customer]", modalMount).forEach((el) => el.addEventListener("click", () => {
+    $$("[data-project],[data-site],[data-customer]", modalMount).forEach((el) => el.addEventListener("click", () => {
       if (el.dataset.project) { devicesState.project = el.dataset.project; devicesState.projectLabel = el.dataset.projectLabel || el.dataset.project; }
       else { devicesState.project = ""; devicesState.projectLabel = ""; }
+      if (el.dataset.site) { devicesState.site = el.dataset.site; devicesState.siteLabel = el.dataset.siteLabel || el.dataset.site; }
+      else { devicesState.site = ""; devicesState.siteLabel = ""; }
       devicesState.customer = el.dataset.customer || ""; devicesState.customerLabel = el.dataset.customerLabel || "";
       devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
       closeModal(); navigate("#/devices");
@@ -686,7 +698,9 @@
     // tidy even with many customers). Data feeds the per-row "diagram" action.
     const custItems = (tree && tree.items) || [];
     state.hierItems = custItems;
-    const totalBuildings = custItems.reduce((s, c) => s + ((c.buildings && c.buildings.length) || 0), 0);
+    const bldgCount = (c) => (c.sites || []).reduce((s, st) => s + ((st.buildings && st.buildings.length) || 0), 0);
+    const totalSites = custItems.reduce((s, c) => s + ((c.sites && c.sites.length) || 0), 0);
+    const totalBuildings = custItems.reduce((s, c) => s + bldgCount(c), 0);
     const cell = (v, cls) => `<td class="num"><span class="t-stat ${cls || ""}">${nf(v)}</span></td>`;
     const custRow = (c, i) => {
       const cname = c.customerName && String(c.customerName).trim() ? c.customerName : "Atanmamış müşteri";
@@ -695,7 +709,8 @@
       return `<tr class="${c.openAlarms ? "row-alarm" : ""}">
         <td><div class="t-cust"><span class="t-badge">${esc(cname.slice(0, 2).toUpperCase())}</span><b>${esc(cname)}</b></div></td>
         <td class="muted">${esc(since)}</td>
-        <td class="num">${nf((c.buildings || []).length)}</td>
+        <td class="num">${nf((c.sites || []).length)}</td>
+        <td class="num">${nf(bldgCount(c))}</td>
         ${cell(c.total, "tot")}
         ${cell(c.online, "on")}
         ${cell(c.offline, c.offline ? "off" : "")}
@@ -709,10 +724,10 @@
     const projHtml = `<div class="panel proj-panel">
         <div class="panel-head"><h2>Müşteriler</h2><div class="panel-actions">
           <button class="btn sm" id="simDiag" title="Örnek hiyerarşi"><svg viewBox="0 0 24 24" class="ic"><path d="M9 4h6v4H9zM4 16h6v4H4zM14 16h6v4h-6zM12 8v4M7 16v-2h10v2"/></svg>Simülasyon</button>
-          <span class="panel-note">${nf(custItems.length)} müşteri · ${nf(totalBuildings)} bina</span>
+          <span class="panel-note">${nf(custItems.length)} müşteri · ${nf(totalSites)} yerleşke · ${nf(totalBuildings)} bina</span>
         </div></div>
         <div class="panel-pad">${custItems.length ? `<div class="table-wrap"><table class="data cust-table">
-          <thead><tr><th>Müşteri</th><th>Kayıt</th><th class="num">Bina</th><th class="num">Sayaç</th><th class="num">Aktif</th><th class="num">Çevrimdışı</th><th class="num">Alarm</th><th></th></tr></thead>
+          <thead><tr><th>Müşteri</th><th>Kayıt</th><th class="num">Yerleşke</th><th class="num">Bina</th><th class="num">Sayaç</th><th class="num">Aktif</th><th class="num">Çevrimdışı</th><th class="num">Alarm</th><th></th></tr></thead>
           <tbody>${custItems.map(custRow).join("")}</tbody>
         </table></div>` : `<div class="empty" style="padding:24px">Henüz müşteriye atanmış cihaz yok.</div>`}</div>
       </div>`;
@@ -791,6 +806,7 @@
       devicesState.customer = el.dataset.customer || "";
       devicesState.customerLabel = el.dataset.customerLabel || "";
       devicesState.project = ""; devicesState.projectLabel = "";
+      devicesState.site = ""; devicesState.siteLabel = "";
       devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
       navigate("#/devices");
     }));
@@ -798,7 +814,7 @@
   }
 
   // ================================================================ DEVICES TABLE
-  const devicesState = { q: "", status: "", online: "", project: "", projectLabel: "", customer: "", customerLabel: "", page: 0, pageSize: 50, total: 0 };
+  const devicesState = { q: "", status: "", online: "", project: "", projectLabel: "", site: "", siteLabel: "", customer: "", customerLabel: "", page: 0, pageSize: 50, total: 0 };
 
   async function renderDevices(silent) {
     if (!silent) {
@@ -818,7 +834,8 @@
           <div class="seg" id="onlineSeg">
             <button data-v="" class="active">Hepsi</button><button data-v="true">Çevrimiçi</button><button data-v="false">Çevrimdışı</button>
           </div>
-          ${devicesState.project ? `<button class="chip-filter" id="clearProject" title="Proje filtresini kaldır">Proje: <b>${esc(devicesState.projectLabel || devicesState.project)}</b> <span class="x">✕</span></button>` : ""}
+          ${devicesState.site ? `<button class="chip-filter" id="clearSite" title="Yerleşke filtresini kaldır">Yerleşke: <b>${esc(devicesState.siteLabel || devicesState.site)}</b> <span class="x">✕</span></button>` : ""}
+          ${devicesState.project ? `<button class="chip-filter" id="clearProject" title="Bina filtresini kaldır">Bina: <b>${esc(devicesState.projectLabel || devicesState.project)}</b> <span class="x">✕</span></button>` : ""}
           ${devicesState.customer ? `<button class="chip-filter" id="clearCustomer" title="Müşteri filtresini kaldır">Müşteri: <b>${esc(devicesState.customerLabel || devicesState.customer)}</b> <span class="x">✕</span></button>` : ""}
           <div class="spacer"></div>
           <input id="devSearch" placeholder="SN / etiket / müşteri / şehir ara…" style="width:280px" value="${esc(devicesState.q)}" />
@@ -838,6 +855,8 @@
       $("#devNew").addEventListener("click", () => openRegisterModal(null));
       $("#devImport").addEventListener("click", openImportModal);
       $("#devExport").addEventListener("click", exportDevicesCsv);
+      const clrSite = $("#clearSite");
+      if (clrSite) clrSite.addEventListener("click", () => { devicesState.site = ""; devicesState.siteLabel = ""; devicesState.page = 0; renderDevices(); });
       const clrProj = $("#clearProject");
       if (clrProj) clrProj.addEventListener("click", () => { devicesState.project = ""; devicesState.projectLabel = ""; devicesState.page = 0; renderDevices(); });
       const clrCust = $("#clearCustomer");
@@ -862,6 +881,7 @@
     if (devicesState.status) p.set("status", devicesState.status);
     if (devicesState.online) p.set("online", devicesState.online);
     if (devicesState.project) p.set("project", devicesState.project);
+    if (devicesState.site) p.set("site", devicesState.site);
     if (devicesState.customer) p.set("customer", devicesState.customer);
     p.set("window", state.settings.onlineWindowSec);
     p.set("limit", devicesState.pageSize);
@@ -1170,7 +1190,7 @@
             <div class="panel-pad">
               <dl class="kv">
                 <dt>Müşteri</dt><dd>${esc(reg.customer_name || "—")}</dd>
-                <dt>Proje</dt><dd>${esc(reg.project_name || "—")}</dd>
+                <dt>Yerleşke / Bina</dt><dd>${esc([reg.site_name, reg.project_name].filter(Boolean).join(" / ") || "—")}</dd>
                 <dt>Abone No</dt><dd>${esc(reg.subscriber_no || "—")}</dd>
                 <dt>Mülk tipi</dt><dd>${esc(reg.property_type_label || "—")}</dd>
                 <dt>Adres</dt><dd>${esc([reg.address_line, reg.district, reg.city].filter(Boolean).join(", ") || "—")}</dd>
@@ -1770,7 +1790,8 @@
         <div class="form-grid">
           <div class="field"><label>SN *</label><input id="rf_sn" value="${v("sn")}" ${editing ? "disabled" : ""} /></div>
           <div class="field"><label>Etiket / Ad</label><input id="rf_label" value="${v("label")}" /></div>
-          <div class="field"><label>Proje adı</label><input id="rf_project_name" value="${v("project_name")}" placeholder="örn. SavasEvi" /></div>
+          <div class="field"><label>Yerleşke</label><input id="rf_site_name" value="${v("site_name")}" placeholder="örn. Mavişehir Sitesi" /></div>
+          <div class="field"><label>Bina / Proje adı</label><input id="rf_project_name" value="${v("project_name")}" placeholder="örn. A Blok / SavasEvi" /></div>
           <div class="field"><label>Abone / Sözleşme No *</label><input id="rf_subscriber_no" value="${v("subscriber_no")}" /></div>
           <div class="field"><label>Müşteri (kimin adına) *</label><select id="rf_customer_id">${cuOpts}</select></div>
           <div class="field"><label>Mülk tipi *</label><select id="rf_property_type_id">${ptOpts}</select></div>
@@ -1796,7 +1817,7 @@
       const sn = ($("#rf_sn").value || "").trim();
       if (!sn) { toast("SN gerekli", "", "warn"); return; }
       const bodyObj = {
-        sn, label: t("rf_label"), project_name: t("rf_project_name"), subscriber_no: t("rf_subscriber_no"),
+        sn, label: t("rf_label"), project_name: t("rf_project_name"), site_name: t("rf_site_name"), subscriber_no: t("rf_subscriber_no"),
         customer_id: t("rf_customer_id"), property_type_id: num("rf_property_type_id"),
         product_key: t("rf_product_key"), telemetry_mode: t("rf_telemetry_mode"),
         tariff: t("rf_tariff"), region: t("rf_region"), dealer: t("rf_dealer"),
@@ -1815,7 +1836,7 @@
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal lg">
         <h3>CSV içe aktarma</h3>
-        <p class="muted">Başlık satırı zorunlu. Kolonlar: <code>sn</code> (zorunlu), <code>label</code>, <code>project_name</code>, <code>subscriber_no</code>, <code>property_type_code</code> (ev/daire/yurt/dukkan/ofis/fabrika/diger), <code>customer_id</code>, <code>address_line</code>, <code>district</code>, <code>city</code>, <code>tariff</code>, <code>region</code>, <code>dealer</code>, <code>install_date</code>, <code>notes</code>.</p>
+        <p class="muted">Başlık satırı zorunlu. Kolonlar: <code>sn</code> (zorunlu), <code>label</code>, <code>site_name</code> (yerleşke), <code>project_name</code> (bina), <code>subscriber_no</code>, <code>property_type_code</code> (ev/daire/yurt/dukkan/ofis/fabrika/diger), <code>customer_id</code>, <code>address_line</code>, <code>district</code>, <code>city</code>, <code>tariff</code>, <code>region</code>, <code>dealer</code>, <code>install_date</code>, <code>notes</code>.</p>
         <textarea id="imText" rows="8" style="width:100%" placeholder="sn,label,subscriber_no,property_type_code&#10;24042809890002,Daire 3,ABN-1001,daire"></textarea>
         <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
           <input id="imFile" type="file" accept=".csv,text/csv" />

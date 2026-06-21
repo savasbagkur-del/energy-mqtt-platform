@@ -171,11 +171,18 @@ export interface HierarchyUnitNode extends HierarchyStats {
   unitLabel: string | null;
 }
 
-/** Building / campus level (devices.project_name). */
+/** Building level (devices.project_name). */
 export interface HierarchyBuildingNode extends HierarchyStats {
   /** project_name; null = no building assigned. */
   buildingName: string | null;
   units: HierarchyUnitNode[];
+}
+
+/** Site / campus level (devices.site_name), one above the building. */
+export interface HierarchySiteNode extends HierarchyStats {
+  /** site_name; null = no site assigned. */
+  siteName: string | null;
+  buildings: HierarchyBuildingNode[];
 }
 
 /** Top level: a customer and everything they own. */
@@ -184,7 +191,7 @@ export interface CustomerHierarchyRow extends HierarchyStats {
   customerId: string | null;
   customerName: string | null;
   customerSince: string | null;
-  buildings: HierarchyBuildingNode[];
+  sites: HierarchySiteNode[];
 }
 
 const addStats = (target: HierarchyStats, s: HierarchyStats): void => {
@@ -196,11 +203,11 @@ const addStats = (target: HierarchyStats, s: HierarchyStats): void => {
 };
 
 /**
- * Full customer → building → unit-type hierarchy for the overview flow chart. One grouped query
- * over (customer, project_name, property type); assembled into a 3-level tree in JS where every
- * level's counts are the sum of its children (rolls up toward the customer/root). Devices with no
- * customer/building/type fall into trailing null buckets so nothing is hidden. Scales with the
- * fleet, not the browser.
+ * Full customer → site → building → unit-type hierarchy for the overview flow chart. One grouped
+ * query over (customer, site_name, project_name, property type); assembled into a 4-level tree in
+ * JS where every level's counts are the sum of its children (rolls up toward the customer/root).
+ * Devices with no customer/site/building/type fall into trailing null buckets so nothing is
+ * hidden. Scales with the fleet, not the browser.
  */
 export const getCustomerHierarchy = async (
   pool: Pool,
@@ -212,6 +219,7 @@ export const getCustomerHierarchy = async (
        d.customer_id,
        c.name AS customer_name,
        c.created_at AS customer_since,
+       d.site_name,
        d.project_name,
        pt.label AS unit_label,
        pt.sort_order AS unit_sort,
@@ -227,9 +235,9 @@ export const getCustomerHierarchy = async (
        SELECT sn, COUNT(*) AS cnt FROM device_alarms WHERE status = 'open' GROUP BY sn
      ) oa ON oa.sn = d.sn
      WHERE d.registry_status IN ('registered', 'auto')
-     GROUP BY d.customer_id, c.name, c.created_at, d.project_name, pt.label, pt.sort_order
-     ORDER BY (d.customer_id IS NULL), c.name NULLS LAST, d.project_name NULLS LAST,
-              pt.sort_order NULLS LAST, pt.label NULLS LAST`,
+     GROUP BY d.customer_id, c.name, c.created_at, d.site_name, d.project_name, pt.label, pt.sort_order
+     ORDER BY (d.customer_id IS NULL), c.name NULLS LAST, d.site_name NULLS LAST,
+              d.project_name NULLS LAST, pt.sort_order NULLS LAST, pt.label NULLS LAST`,
     [win]
   );
   const byCustomer = new Map<string, CustomerHierarchyRow>();
@@ -247,15 +255,21 @@ export const getCustomerHierarchy = async (
         offline: 0,
         totalEnergyKwh: 0,
         openAlarms: 0,
-        buildings: []
+        sites: []
       };
       byCustomer.set(ckey, cust);
     }
+    const sname = (r.site_name as string | null) ?? null;
+    let site = cust.sites.find((s) => s.siteName === sname);
+    if (!site) {
+      site = { siteName: sname, total: 0, online: 0, offline: 0, totalEnergyKwh: 0, openAlarms: 0, buildings: [] };
+      cust.sites.push(site);
+    }
     const bname = (r.project_name as string | null) ?? null;
-    let bld = cust.buildings.find((b) => b.buildingName === bname);
+    let bld = site.buildings.find((b) => b.buildingName === bname);
     if (!bld) {
       bld = { buildingName: bname, total: 0, online: 0, offline: 0, totalEnergyKwh: 0, openAlarms: 0, units: [] };
-      cust.buildings.push(bld);
+      site.buildings.push(bld);
     }
     const total = int(r.total);
     const online = int(r.online);
@@ -269,6 +283,7 @@ export const getCustomerHierarchy = async (
     };
     bld.units.push(leaf);
     addStats(bld, leaf);
+    addStats(site, leaf);
     addStats(cust, leaf);
   }
   return Array.from(byCustomer.values());
@@ -335,8 +350,10 @@ export interface ListFleetDevicesFilter {
   alarm?: boolean | null;
   /** Only devices with an outstanding balance (owe_money > 0). */
   owing?: boolean | null;
-  /** Filter by project_name. Use "__none__" for devices with no project assigned. */
+  /** Filter by project_name (building). Use "__none__" for devices with no building assigned. */
   project?: string | null;
+  /** Filter by site_name (yerleşke). Use "__none__" for devices with no site assigned. */
+  site?: string | null;
   /** Filter by owning customer id (used by the customer-scoped API). */
   customerId?: string | null;
   onlineWindowSec?: number;
@@ -418,6 +435,14 @@ export const listFleetDevices = async (
     } else {
       params.push(filter.project);
       where.push(`d.project_name = $${params.length}`);
+    }
+  }
+  if (filter.site) {
+    if (filter.site === "__none__") {
+      where.push(`(d.site_name IS NULL OR d.site_name = '')`);
+    } else {
+      params.push(filter.site);
+      where.push(`d.site_name = $${params.length}`);
     }
   }
   if (filter.customerId) {

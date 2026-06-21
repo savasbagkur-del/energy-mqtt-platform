@@ -1574,7 +1574,8 @@ const toMetadataInput = (
     installDate: str("installDate") ?? str("install_date") ?? null,
     notes: str("notes") ?? null,
     telemetryMode: telemetryModeRaw ?? null,
-    projectName: str("projectName") ?? str("project_name") ?? null
+    projectName: str("projectName") ?? str("project_name") ?? null,
+    siteName: str("siteName") ?? str("site_name") ?? null
   };
 };
 
@@ -1919,6 +1920,7 @@ app.get("/fleet/devices", async (req, res) => {
     if (req.query.alarm === "true") filter.alarm = true;
     if (req.query.owing === "true") filter.owing = true;
     if (typeof req.query.project === "string" && req.query.project) filter.project = req.query.project;
+    if (typeof req.query.site === "string" && req.query.site) filter.site = req.query.site;
     if (typeof req.query.customer === "string" && req.query.customer) filter.customerId = req.query.customer;
     if (typeof req.query.window === "string") filter.onlineWindowSec = Number(req.query.window);
     if (typeof req.query.limit === "string") filter.limit = Number(req.query.limit);

@@ -216,6 +216,7 @@ export interface DeviceRegistryRow {
   telemetry_mode: string | null;
   model: string | null;
   project_name: string | null;
+  site_name: string | null;
   registry_status: string;
   lifecycle_status: string;
   registered_at: string | null;
