@@ -1879,12 +1879,12 @@
       <div class="modal-backdrop"><div class="modal xl import-form-modal">
         <div class="modal-head"><h3>Müşteri formu yükle</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
         <p class="muted import-form-lead">Doldurulmuş <strong>Kayıt Formu</strong> (.xlsx) dosyasını seçin. Her yüklemede tek müşteri kaydedilir.</p>
-        <label class="form-upload-zone" id="ciDrop" tabindex="0">
+        <div class="form-upload-zone" id="ciDrop" role="button" tabindex="0" aria-label="Excel formu seç">
           <input type="file" id="ciFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
           <span class="form-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V3m0 0 4 4m-4-4-4 4M5 21h14"/></svg></span>
           <span class="form-upload-title">Excel formu seç</span>
           <span class="form-upload-name" id="ciFileName">Kayıt Formu (.xlsx)</span>
-        </label>
+        </div>
         <div id="ciPreview" class="import-form-body"></div>
         <div class="modal-actions"><button class="btn" id="ciCancel">Vazgeç</button><button class="btn primary" id="ciConfirm" hidden>Onayla ve yükle</button></div>
       </div></div>`;
@@ -1966,7 +1966,10 @@
 
     $("#ciClose").addEventListener("click", closeModal);
     $("#ciCancel").addEventListener("click", closeModal);
-    dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("click", (e) => {
+      if (e.target === fileInput) return;
+      fileInput.click();
+    });
     dropZone.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
     });
