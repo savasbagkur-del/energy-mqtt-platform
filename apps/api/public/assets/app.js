@@ -1878,7 +1878,7 @@
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal xl">
         <div class="modal-head"><h3>Toplu müşteri yükleme</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
-        <p class="muted">Profesyonel Excel şablonunu indirin, sahadaki bilgileri doldurun ve <strong>.xlsx</strong> olarak kaydedip yükleyin. Her sayaç ayrı satırdır (aynı müşteri bilgileri tekrarlanır).</p>
+        <p class="muted">Profesyonel <strong>Kayıt Formu</strong>: üstte müşteri bilgileri, altta sayaç tablosu. Birden fazla müşteri için ikinci blok veya <em>Toplu Kayıt</em> sekmesi.</p>
         <div class="panel-inset import-help">
           <strong>Sütunlar:</strong> Müşteri Adı · Telefon · E-posta · Bağlantı Tipi (panel/api) · Panel Kullanıcı · Parola · Sayaç Seri No · Daire/Dükkan · Usage · Not — ayrıntılar şablondaki <em>Açıklama</em> sekmesinde.
         </div>
