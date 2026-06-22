@@ -683,9 +683,9 @@
 
   async function renderOverview(silent) {
     if (!silent) view.innerHTML = overviewSkeleton();
-    let ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc;
+    let ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc, billAws;
     try {
-      [ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc] = await Promise.all([
+      [ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc, billAws] = await Promise.all([
         api("GET", `/fleet/overview?window=${state.settings.onlineWindowSec}`),
         api("GET", `/fleet/devices?online=false&limit=6&window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?alarm=true&limit=6`).catch(() => ({ items: [] })),
@@ -694,7 +694,8 @@
         api("GET", `/fleet/hierarchy?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/models`).catch(() => ({ items: [] })),
         isAdmin() ? api("GET", "/billing/config").catch(() => null) : Promise.resolve(null),
-        isAdmin() ? api("GET", `/fleet/billing?window=${state.settings.onlineWindowSec}`).catch(() => null) : Promise.resolve(null)
+        isAdmin() ? api("GET", `/fleet/billing?window=${state.settings.onlineWindowSec}`).catch(() => null) : Promise.resolve(null),
+        isAdmin() ? api("GET", "/billing/aws-cost").catch(() => null) : Promise.resolve(null)
       ]);
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
     state.lastOverview = ov;
@@ -800,8 +801,15 @@
     let costHtml = "";
     if (isAdmin() && bill && billAlloc) {
       state.settings.billing = Object.assign({}, state.settings.billing, bill); saveSettings();
-      const cCost = Number(bill.monthlyCost) || 0;
       const cMargin = Number(bill.marginPct) || 0;
+      const cManual = Number(bill.monthlyCost) || 0;
+      // Resolve the same cost basis as the billing page (Şu an ödenecek / Bu ay tahmini / Elle).
+      const cMtd = billAws ? Number(billAws.monthToDate) || 0 : null;
+      const cForecast = billAws && billAws.forecastMonthEnd != null ? Number(billAws.forecastMonthEnd) : null;
+      let cBasis = bill.costBasis || "manual";
+      if ((cBasis === "actual" && cMtd == null) || (cBasis === "forecast" && cForecast == null)) cBasis = "manual";
+      const cCost = cBasis === "actual" ? (cMtd ?? cManual) : cBasis === "forecast" ? (cForecast ?? cManual) : cManual;
+      const cBasisLabel = { manual: "elle tanımlı", actual: "şu an ödenecek (AWS)", forecast: "bu ay tahmini (AWS)" }[cBasis];
       const cTotalDev = billAlloc.totalDevices || 0;
       const cCharge = cCost * (1 + cMargin / 100);
       const perDev = cTotalDev > 0 ? cCharge / cTotalDev : 0;
@@ -825,7 +833,7 @@
       costHtml = `
       <div class="panel cost-panel">
         <div class="panel-head"><h2>Maliyet Özeti</h2><div class="panel-actions">
-          <span class="panel-note">cihaz payına göre dağıtım${cMargin ? ` · marj %${nf(cMargin)}` : ""}</span>
+          <span class="panel-note">${cBasisLabel}${cMargin ? ` · marj %${nf(cMargin)}` : ""}</span>
           <button class="btn sm ghost" data-go="billing">Detay →</button>
         </div></div>
         <div class="panel-pad cost-body">
@@ -834,7 +842,7 @@
             <div class="ch-main">
               <div class="ch-label">Toplam aylık talep</div>
               <div class="ch-val">${money(cCharge)}</div>
-              <div class="ch-sub">Altyapı maliyeti ${money(cCost)}${cMargin ? ` · +%${nf(cMargin)} marj` : ""}</div>
+              <div class="ch-sub">${cBasisLabel.charAt(0).toUpperCase() + cBasisLabel.slice(1)} ${money(cCost)}${cMargin ? ` · +%${nf(cMargin)} marj` : ""}</div>
             </div>
             <div class="ch-tiles">
               <div class="ch-tile"><span>Cihaz başı / ay</span><b>${money(perDev)}</b></div>
