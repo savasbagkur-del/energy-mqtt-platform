@@ -80,7 +80,23 @@ const CUSTOMER_OFFSET = {
   meterDataStart: { r: 9, c: 1 }
 };
 
-const METER_COL = { no: 1, sn: 2, unit: 3, usage: 4, note: 5 };
+const METER_COL = { no: 1, sn: 2, unit: 5, usage: 7, note: 8 };
+
+/** Meter table spans A–H: # | SN (B–D) | Daire (E–F) | Usage | Not */
+const METER_SPANS: Array<{ key: keyof typeof METER_COL; label: string; c1: number; c2: number; text?: boolean }> = [
+  { key: "no", label: "#", c1: 1, c2: 1 },
+  { key: "sn", label: "Sayaç Seri No", c1: 2, c2: 4, text: true },
+  { key: "unit", label: "Daire / Dükkan", c1: 5, c2: 6 },
+  { key: "usage", label: "Usage", c1: 7, c2: 7 },
+  { key: "note", label: "Sayaç Notu", c1: 8, c2: 8 }
+];
+
+const BAGLANTI_HINT = "panel / api";
+
+const isBaglantiHint = (v: string): boolean => {
+  const t = v.trim().toLowerCase();
+  return !t || t === BAGLANTI_HINT.toLowerCase() || t === "panel veya api" || t === "panel,api";
+};
 
 const styleLabel = (cell: ExcelJS.Cell, text: string) => {
   cell.value = text;
@@ -134,13 +150,19 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
   styleLabel(ws.getCell(R + 3, 5), "Bağlantı Tipi *");
   ws.mergeCells(R + 3, 5, R + 3, 6);
   const bagCell = mergeStyle(ws, R + 3, 7, R + 3, 8, false);
+  bagCell.value = BAGLANTI_HINT;
+  bagCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: "FF94A3B8" } };
+  bagCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
   bagCell.dataValidation = {
     type: "list",
     allowBlank: true,
     formulae: ['"panel,api"'],
+    showInputMessage: true,
+    promptTitle: "Bağlantı Tipi",
+    prompt: "panel = yerel panel · api = 3. parti yazılım",
     showErrorMessage: true,
     errorTitle: "Geçersiz",
-    error: "panel veya api"
+    error: "panel veya api yazın"
   };
 
   styleLabel(ws.getCell(R + 4, 1), "Giriş kullanıcı adı");
@@ -169,10 +191,10 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
   ws.getRow(R + 7).height = 22;
 
   const mh = R + 8;
-  const heads = ["#", "Sayaç Seri No", "Daire / Dükkan", "Usage", "Sayaç Notu"];
-  heads.forEach((h, i) => {
-    const cell = ws.getCell(mh, i + 1);
-    cell.value = h;
+  METER_SPANS.forEach(({ label, c1, c2 }) => {
+    if (c1 < c2) ws.mergeCells(mh, c1, mh, c2);
+    const cell = ws.getCell(mh, c1);
+    cell.value = label;
     cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.tableHeadFg } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.tableHeadBg } };
     cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
@@ -192,20 +214,22 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
     noCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: zebra } };
     noCell.border = borderAll();
 
-    [METER_COL.sn, METER_COL.unit, METER_COL.usage, METER_COL.note].forEach((col) => {
-      const cell = ws.getCell(r, col);
-      styleValue(cell, col === METER_COL.sn);
+    METER_SPANS.filter((s) => s.key !== "no").forEach(({ key, c1, c2, text }) => {
+      if (c1 < c2) ws.mergeCells(r, c1, r, c2);
+      const cell = ws.getCell(r, c1);
+      styleValue(cell, Boolean(text));
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: zebra } };
+      if (key === "usage") {
+        cell.dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: ['"prepaid,postpaid"'],
+          showErrorMessage: true,
+          errorTitle: "Geçersiz",
+          error: "prepaid veya postpaid"
+        };
+      }
     });
-
-    ws.getCell(r, METER_COL.usage).dataValidation = {
-      type: "list",
-      allowBlank: true,
-      formulae: ['"prepaid,postpaid"'],
-      showErrorMessage: true,
-      errorTitle: "Geçersiz",
-      error: "prepaid veya postpaid"
-    };
   }
 };
 
@@ -296,7 +320,7 @@ export const buildCustomerImportTemplate = async (): Promise<Buffer> => {
     pageSetup: { orientation: "portrait", fitToPage: true, fitToWidth: 1 }
   });
 
-  [14, 14, 14, 14, 14, 14, 14, 22].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  [6, 18, 18, 18, 14, 14, 10, 20].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
   writeDocumentHeader(ws);
   writeCustomerBlock(ws, 5, 1);
@@ -347,7 +371,10 @@ const readCustomerBlock = (ws: ExcelJS.Worksheet, bannerRow: number): Record<str
   const o: Record<string, string> = {
     musteri_adi: readMerged(ws, R + CUSTOMER_OFFSET.musteri_adi.r, CUSTOMER_OFFSET.musteri_adi.c),
     telefon: readMerged(ws, R + CUSTOMER_OFFSET.telefon.r, CUSTOMER_OFFSET.telefon.c),
-    baglanti: readMerged(ws, R + CUSTOMER_OFFSET.baglanti.r, CUSTOMER_OFFSET.baglanti.c),
+    baglanti: (() => {
+      const v = readMerged(ws, R + CUSTOMER_OFFSET.baglanti.r, CUSTOMER_OFFSET.baglanti.c);
+      return isBaglantiHint(v) ? "" : v;
+    })(),
     eposta: readMerged(ws, R + CUSTOMER_OFFSET.eposta.r, CUSTOMER_OFFSET.eposta.c),
     kullanici: readMerged(ws, R + CUSTOMER_OFFSET.kullanici.r, CUSTOMER_OFFSET.kullanici.c),
     parola: readMerged(ws, R + CUSTOMER_OFFSET.parola.r, CUSTOMER_OFFSET.parola.c),

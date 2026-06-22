@@ -109,6 +109,7 @@ export interface CustomerImportApplyResult {
 
 const normalizeIntegration = (raw: string): "panel" | "api" => {
   const t = raw.trim().toLowerCase();
+  if (!t || t === "panel / api" || t === "panel veya api" || t === "panel,api") return "panel";
   if (t === "api" || t === "3. parti" || t === "3.parti" || t === "3parti") return "api";
   return "panel";
 };
