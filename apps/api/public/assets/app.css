@@ -627,6 +627,32 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .bl-config { padding: 16px 18px; margin-bottom: 18px; }
 .bl-aws { display: flex; align-items: center; gap: 10px; margin-top: 13px; flex-wrap: wrap; }
 .bl-aws .muted { font-size: 12px; }
+
+/* overview: cost summary panel */
+.cost-panel { margin-bottom: 18px; }
+.cost-body { display: flex; flex-direction: column; gap: 16px; padding: 16px 18px; }
+.cost-hero { position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: center; gap: 18px; padding: 20px 22px; border-radius: var(--radius); background: linear-gradient(135deg, var(--brand-soft), var(--panel-2)); border: 1px solid var(--line); }
+.ch-glow { position: absolute; top: -70px; right: -50px; width: 230px; height: 230px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--brand) 26%, transparent), transparent 70%); pointer-events: none; }
+.ch-main { position: relative; flex: 1 1 220px; }
+.ch-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.ch-val { font-size: 38px; font-weight: 800; letter-spacing: -.02em; line-height: 1.05; margin-top: 6px; color: var(--brand-text); font-variant-numeric: tabular-nums; }
+.ch-sub { margin-top: 7px; font-size: 13px; color: var(--txt-2); }
+.ch-tiles { position: relative; display: grid; grid-template-columns: repeat(3, minmax(96px, 1fr)); gap: 10px; }
+.ch-tile { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 11px 13px; min-width: 96px; }
+.ch-tile span { display: block; font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.ch-tile b { display: block; margin-top: 5px; font-size: 18px; font-variant-numeric: tabular-nums; }
+.cost-top { display: flex; flex-direction: column; gap: 9px; }
+.ct-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 2px; }
+.ct-row { display: grid; grid-template-columns: minmax(120px, 1.4fr) minmax(80px, 2fr) auto auto; align-items: center; gap: 12px; }
+.ct-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ct-bar { height: 8px; border-radius: 999px; background: var(--panel-3); overflow: hidden; }
+.ct-bar span { display: block; height: 100%; border-radius: 999px; background: var(--brand-grad); }
+.ct-dev { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ct-amt { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 84px; }
+@media (max-width: 640px) {
+  .ct-row { grid-template-columns: 1fr auto; }
+  .ct-bar, .ct-dev { display: none; }
+}
 .in-affix { display: flex; align-items: center; }
 .in-affix > span { padding: 0 8px; height: 34px; display: grid; place-items: center; background: var(--panel-3); border: 1px solid var(--line); border-right: 0; border-radius: 8px 0 0 8px; color: var(--muted); font-weight: 700; }
 .in-affix > input { border-radius: 0 8px 8px 0; }

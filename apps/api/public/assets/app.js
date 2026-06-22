@@ -683,16 +683,18 @@
 
   async function renderOverview(silent) {
     if (!silent) view.innerHTML = overviewSkeleton();
-    let ov, offline, alarms, owing, cmdAlarms, tree, models;
+    let ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc;
     try {
-      [ov, offline, alarms, owing, cmdAlarms, tree, models] = await Promise.all([
+      [ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc] = await Promise.all([
         api("GET", `/fleet/overview?window=${state.settings.onlineWindowSec}`),
         api("GET", `/fleet/devices?online=false&limit=6&window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?alarm=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/fleet/devices?owing=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/alarms?status=open&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/fleet/hierarchy?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
-        api("GET", `/fleet/models`).catch(() => ({ items: [] }))
+        api("GET", `/fleet/models`).catch(() => ({ items: [] })),
+        isAdmin() ? api("GET", "/billing/config").catch(() => null) : Promise.resolve(null),
+        isAdmin() ? api("GET", `/fleet/billing?window=${state.settings.onlineWindowSec}`).catch(() => null) : Promise.resolve(null)
       ]);
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
     state.lastOverview = ov;
@@ -794,6 +796,60 @@
         </div>
       </div>`;
 
+    // Cost summary (admin only): allocates the shared monthly bill across customers by device share.
+    let costHtml = "";
+    if (isAdmin() && bill && billAlloc) {
+      state.settings.billing = Object.assign({}, state.settings.billing, bill); saveSettings();
+      const cCost = Number(bill.monthlyCost) || 0;
+      const cMargin = Number(bill.marginPct) || 0;
+      const cTotalDev = billAlloc.totalDevices || 0;
+      const cCharge = cCost * (1 + cMargin / 100);
+      const perDev = cTotalDev > 0 ? cCharge / cTotalDev : 0;
+      const byCust = new Map();
+      (billAlloc.items || []).forEach((it) => {
+        const name = (it.customerName && String(it.customerName).trim()) ? it.customerName : "Atanmamış müşteri";
+        byCust.set(name, (byCust.get(name) || 0) + (it.devices || 0));
+      });
+      const custArr = Array.from(byCust.entries())
+        .map(([name, dev]) => ({ name, dev, charge: cTotalDev > 0 ? cCharge * (dev / cTotalDev) : 0 }))
+        .sort((a, b) => b.dev - a.dev);
+      const maxDev = custArr.length ? custArr[0].dev : 0;
+      const topCust = custArr.slice(0, 5);
+      const topRows = topCust.map((c) => `
+        <div class="ct-row">
+          <div class="ct-name" title="${esc(c.name)}">${esc(c.name)}</div>
+          <div class="ct-bar"><span style="width:${maxDev > 0 ? Math.max(6, Math.round((c.dev / maxDev) * 100)) : 0}%"></span></div>
+          <div class="ct-dev">${nf(c.dev)} cihaz</div>
+          <div class="ct-amt">${money(c.charge)}</div>
+        </div>`).join("");
+      costHtml = `
+      <div class="panel cost-panel">
+        <div class="panel-head"><h2>Maliyet Özeti</h2><div class="panel-actions">
+          <span class="panel-note">cihaz payına göre dağıtım${cMargin ? ` · marj %${nf(cMargin)}` : ""}</span>
+          <button class="btn sm ghost" data-go="billing">Detay →</button>
+        </div></div>
+        <div class="panel-pad cost-body">
+          <div class="cost-hero">
+            <div class="ch-glow"></div>
+            <div class="ch-main">
+              <div class="ch-label">Toplam aylık talep</div>
+              <div class="ch-val">${money(cCharge)}</div>
+              <div class="ch-sub">Altyapı maliyeti ${money(cCost)}${cMargin ? ` · +%${nf(cMargin)} marj` : ""}</div>
+            </div>
+            <div class="ch-tiles">
+              <div class="ch-tile"><span>Cihaz başı / ay</span><b>${money(perDev)}</b></div>
+              <div class="ch-tile"><span>Faturalanan cihaz</span><b>${nf(cTotalDev)}</b></div>
+              <div class="ch-tile"><span>Müşteri</span><b>${nf(byCust.size)}</b></div>
+            </div>
+          </div>
+          ${topCust.length ? `<div class="cost-top">
+            <div class="ct-head">Müşteriye göre dağılım <span class="muted">(en yüksek ${nf(topCust.length)})</span></div>
+            ${topRows}
+          </div>` : ""}
+        </div>
+      </div>`;
+    }
+
     view.innerHTML = `
       <div class="page-head">
         <div><h1>Genel Bakış</h1></div>
@@ -805,6 +861,7 @@
           <div>${attHtml}</div>
         </div>
       </div>
+      ${costHtml}
       ${projHtml}`;
 
     wireDonut(view);
