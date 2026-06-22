@@ -17,7 +17,7 @@
   // While a switch/refresh command is mid-flight we poll fast so the operator sees the
   // "opened / closed" confirmation promptly; otherwise we stay on the slow idle cadence.
   const FAST_REFRESH_MS = 10000;
-  const defaultSettings = { refreshMs: 300000, onlineWindowSec: 360, theme: "light", offlineAlarmMin: 15, themeRev: THEME_REV, settingsRev: SETTINGS_REV };
+  const defaultSettings = { refreshMs: 300000, onlineWindowSec: 360, theme: "light", offlineAlarmMin: 15, themeRev: THEME_REV, settingsRev: SETTINGS_REV, billing: { monthlyCost: 92, marginPct: 30, currency: "USD" } };
 
   function loadUser() {
     try { const u = JSON.parse(localStorage.getItem(USER_KEY) || "null"); return u && u.username ? u : null; }
@@ -41,6 +41,7 @@
     try {
       const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
       const merged = Object.assign({}, defaultSettings, raw);
+      merged.billing = Object.assign({}, defaultSettings.billing, raw.billing || {});
       // One-time migration: snap to the new light default if the saved prefs predate it.
       if (merged.themeRev !== THEME_REV) { merged.theme = "light"; merged.themeRev = THEME_REV; }
       // One-time migration to the cost-saving cadence: 5 dk idle yenileme + 6 dk çevrimiçi eşiği.
@@ -173,6 +174,8 @@
 
   function renderUserChip() {
     const chip = $("#userChip");
+    const navBilling = $("#navBilling");
+    if (navBilling) navBilling.hidden = !(state.user && state.user.role === "admin");
     if (!state.user) { chip.hidden = true; return; }
     chip.hidden = false;
     $("#userAva").textContent = (state.user.username || "?").charAt(0).toUpperCase();
@@ -1605,6 +1608,122 @@
     } catch (e) { toast("Hata", e.message, "error"); }
   }
 
+  // ================================================================ BILLING (cost chargeback)
+  const CUR_SYM = { USD: "$", EUR: "€", TRY: "₺" };
+  function curSym() { return CUR_SYM[state.settings.billing.currency] || ""; }
+  function money(n) {
+    const v = Number.isFinite(n) ? n : 0;
+    return `${curSym()}${v.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  function defaultPeriod() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+  const billingState = { period: defaultPeriod() };
+
+  async function renderBilling(silent) {
+    if (!isAdmin()) {
+      view.innerHTML = `<div class="page-head"><div><h1>Maliyet & Faturalandırma</h1></div></div>
+        <div class="panel"><div class="empty">Bu sayfa yalnızca yöneticiler içindir.</div></div>`;
+      return;
+    }
+    let res;
+    try { res = await api("GET", `/fleet/billing?window=${state.settings.onlineWindowSec}`); }
+    catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
+
+    const items = res.items || [];
+    const totalDevices = res.totalDevices || 0;
+    const b = state.settings.billing;
+    const cost = Number(b.monthlyCost) || 0;
+    const margin = Number(b.marginPct) || 0;
+    const totalCharge = cost * (1 + margin / 100);
+
+    // Allocate the shared monthly bill by device share, then apply the margin to get the invoice amount.
+    const rows = items.map((it) => {
+      const share = totalDevices > 0 ? it.devices / totalDevices : 0;
+      const costShare = cost * share;
+      const charge = costShare * (1 + margin / 100);
+      return { ...it, share, costShare, charge };
+    });
+
+    view.innerHTML = `
+      <div class="page-head">
+        <div><h1>Maliyet & Faturalandırma</h1><div class="sub">Aylık altyapı maliyeti cihaz payına göre proje başına dağıtılır · ${nf(totalDevices)} faturalanabilir cihaz</div></div>
+        <div class="head-actions"><button class="btn" id="blExport"><svg viewBox="0 0 24 24" class="ic"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>CSV indir</button></div>
+      </div>
+
+      <div class="panel bl-config">
+        <div class="form-grid four">
+          <label>Aylık altyapı maliyeti
+            <div class="in-affix"><span>${curSym()}</span><input id="blCost" type="number" min="0" step="1" value="${esc(cost)}" /></div>
+          </label>
+          <label>Kâr marjı (%)
+            <input id="blMargin" type="number" min="0" step="1" value="${esc(margin)}" />
+          </label>
+          <label>Para birimi
+            <select id="blCur">
+              ${["USD", "EUR", "TRY"].map((c) => `<option value="${c}" ${b.currency === c ? "selected" : ""}>${c} (${CUR_SYM[c]})</option>`).join("")}
+            </select>
+          </label>
+          <label>Fatura dönemi
+            <input id="blPeriod" type="month" value="${esc(billingState.period)}" />
+          </label>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi"><div class="kpi-top">Toplam maliyet</div><div class="kpi-val">${money(cost)}</div><div class="kpi-sub">aylık altyapı</div></div>
+        <div class="kpi info accent"><div class="kpi-top">Toplam talep</div><div class="kpi-val accent">${money(totalCharge)}</div><div class="kpi-sub">marj %${nf(margin)} dahil</div></div>
+        <div class="kpi"><div class="kpi-top">Cihaz başı</div><div class="kpi-val">${money(totalDevices > 0 ? totalCharge / totalDevices : 0)}</div><div class="kpi-sub">ortalama / ay</div></div>
+        <div class="kpi"><div class="kpi-top">Proje</div><div class="kpi-val">${nf(rows.length)}</div><div class="kpi-sub">${nf(totalDevices)} cihaz</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Proje başına dağıtım</h2><span class="muted">${esc(billingState.period)}</span></div>
+        <div class="table-wrap"><table class="data">
+          <thead><tr>
+            <th>Müşteri</th><th>Proje / Bina</th><th class="num">Cihaz</th><th class="num">Çevrimiçi</th>
+            <th class="num">Pay</th><th class="num">Maliyet payı</th><th class="num">Talep tutarı</th>
+          </tr></thead>
+          <tbody>${rows.length ? rows.map((r) => `
+            <tr>
+              <td><b>${esc(r.customerName || "—")}</b></td>
+              <td>${esc(r.projectName || "(proje atanmamış)")}</td>
+              <td class="num">${nf(r.devices)}</td>
+              <td class="num muted">${nf(r.online)}</td>
+              <td class="num">${(r.share * 100).toFixed(1)}%</td>
+              <td class="num muted">${money(r.costShare)}</td>
+              <td class="num"><b>${money(r.charge)}</b></td>
+            </tr>`).join("") : `<tr><td colspan="7" class="empty">Faturalanabilir cihaz yok.</td></tr>`}</tbody>
+          <tfoot><tr>
+            <td><b>Toplam</b></td><td></td>
+            <td class="num"><b>${nf(totalDevices)}</b></td><td></td>
+            <td class="num"><b>100%</b></td>
+            <td class="num"><b>${money(cost)}</b></td>
+            <td class="num accent"><b>${money(totalCharge)}</b></td>
+          </tr></tfoot>
+        </table></div>
+      </div>`;
+
+    const persist = () => { saveSettings(); renderBilling(true); };
+    $("#blCost").addEventListener("change", (e) => { state.settings.billing.monthlyCost = Math.max(0, Number(e.target.value) || 0); persist(); });
+    $("#blMargin").addEventListener("change", (e) => { state.settings.billing.marginPct = Math.max(0, Number(e.target.value) || 0); persist(); });
+    $("#blCur").addEventListener("change", (e) => { state.settings.billing.currency = e.target.value; persist(); });
+    $("#blPeriod").addEventListener("change", (e) => { billingState.period = e.target.value || defaultPeriod(); renderBilling(true); });
+    $("#blExport").addEventListener("click", () => {
+      const cols = ["donem", "musteri", "proje", "cihaz", "cevrimici", "pay_yuzde", "maliyet_payi", "talep_tutari", "para_birimi"];
+      const lines = [cols.join(",")].concat(rows.map((r) => [
+        billingState.period, csvCell(r.customerName || ""), csvCell(r.projectName || ""),
+        r.devices, r.online, (r.share * 100).toFixed(2),
+        r.costShare.toFixed(2), r.charge.toFixed(2), b.currency
+      ].join(",")));
+      lines.push(["", "TOPLAM", "", totalDevices, "", "100.00", cost.toFixed(2), totalCharge.toFixed(2), b.currency].join(","));
+      downloadFile(`volt4amper-faturalandirma-${billingState.period}.csv`, lines.join("\n"));
+      toast("Dışa aktarıldı", `${rows.length} proje · ${billingState.period}`, "success");
+    });
+    state.refresher = renderBilling;
+  }
+
   // ================================================================ ALARMS
   const alarmsState = { filter: "all" };
   async function renderAlarms(silent) {
@@ -1999,7 +2118,7 @@
   function navigate(hash) { if (location.hash === hash) router(); else location.hash = hash; }
   function reloadCurrentView() { router(); }
 
-  const NAV = { overview: "overview", devices: "devices", device: "devices", alarms: "alarms", registry: "registry", settings: "settings" };
+  const NAV = { overview: "overview", devices: "devices", device: "devices", customers: "customers", billing: "billing", alarms: "alarms", registry: "registry", settings: "settings" };
   function setNavActive(name) {
     const target = NAV[name] || "overview";
     $$(".nav-item").forEach((a) => a.classList.toggle("active", a.dataset.route === target));
@@ -2021,6 +2140,7 @@
         case "overview": await renderOverview(); break;
         case "devices": await renderDevices(); break;
         case "customers": await renderCustomers(); break;
+        case "billing": await renderBilling(); break;
         case "device": if (r.param) await renderDevice(r.param); else navigate("#/devices"); break;
         case "alarms": await renderAlarms(); break;
         case "registry": await renderRegistry(); break;

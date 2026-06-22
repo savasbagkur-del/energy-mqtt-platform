@@ -620,6 +620,18 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .form-grid label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
 .form-grid label.check { flex-direction: row; align-items: center; color: var(--txt-2); font-weight: 500; }
 .form-grid input { width: 100%; }
+.form-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 720px) { .form-grid.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* billing: cost chargeback */
+.bl-config { padding: 16px 18px; margin-bottom: 18px; }
+.in-affix { display: flex; align-items: center; }
+.in-affix > span { padding: 0 8px; height: 34px; display: grid; place-items: center; background: var(--panel-3); border: 1px solid var(--line); border-right: 0; border-radius: 8px 0 0 8px; color: var(--muted); font-weight: 700; }
+.in-affix > input { border-radius: 0 8px 8px 0; }
+.kpi-val.accent { color: var(--brand-text); }
+table.data td.accent { color: var(--brand-text); font-variant-numeric: tabular-nums; }
+table.data tfoot td { padding: 12px 14px; border-top: 2px solid var(--line-2); background: var(--panel-2); white-space: nowrap; }
+table.data tfoot td.num { text-align: right; font-family: var(--mono); }
 
 /* customer connection badges */
 .conn-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; margin-right: 5px; border: 1px solid transparent; }

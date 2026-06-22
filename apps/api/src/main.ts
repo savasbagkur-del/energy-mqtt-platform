@@ -59,6 +59,7 @@ import {
   setDeviceLifecycle,
   getFleetOverview,
   getProjectOverview,
+  getBillingAllocation,
   getCustomerHierarchy,
   getModelOverview,
   listFleetDevices,
@@ -1903,6 +1904,18 @@ app.get("/fleet/projects", async (req, res) => {
   } catch (error) {
     console.error("[api] failed to build project overview", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_build_project_overview" });
+  }
+});
+
+// Per-project billable device counts for cost chargeback (admin-only). The monetary math
+// (monthly infra cost + margin) is applied client-side from operator-configured settings.
+app.get("/fleet/billing", requireAdmin, async (req, res) => {
+  try {
+    const win = typeof req.query.window === "string" ? Number(req.query.window) : undefined;
+    res.status(200).json(await getBillingAllocation(dbPool, win));
+  } catch (error) {
+    console.error("[api] failed to build billing allocation", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_build_billing_allocation" });
   }
 });
 

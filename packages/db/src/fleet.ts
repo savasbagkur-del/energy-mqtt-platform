@@ -156,6 +156,67 @@ export const getProjectOverview = async (
   });
 };
 
+export interface BillingAllocationRow {
+  /** customers.id; null = devices not linked to a customer. */
+  customerId: number | null;
+  /** customers.name; null = no customer. */
+  customerName: string | null;
+  /** project_name; null bucket = no project assigned. */
+  projectName: string | null;
+  /** Managed (billable) device count in this project. */
+  devices: number;
+  /** Currently-online devices (informational). */
+  online: number;
+  /** Summed energy index (informational). */
+  totalEnergyKwh: number;
+}
+
+export interface BillingAllocation {
+  totalDevices: number;
+  items: BillingAllocationRow[];
+  generatedAt: string;
+}
+
+/**
+ * Per-project billable device counts for cost chargeback. The shared infrastructure bill is
+ * allocated across projects by device share (project devices / total devices), so the API just
+ * needs the counts — the monetary math (monthly cost + margin) is applied at the edge where the
+ * operator-configured rate lives. Only managed meters (registered/auto) are billable; quarantined
+ * devices are excluded.
+ */
+export const getBillingAllocation = async (
+  pool: Pool,
+  onlineWindowSec = 300
+): Promise<BillingAllocation> => {
+  const win = String(clampInt(onlineWindowSec, 300, 30, 86400));
+  const res = await pool.query(
+    `SELECT
+       d.customer_id,
+       c.name AS customer_name,
+       d.project_name,
+       COUNT(*) AS devices,
+       COUNT(*) FILTER (WHERE ls.last_seen_at >= NOW() - ($1 || ' seconds')::interval) AS online,
+       COALESCE(SUM(ls.energy_import_kwh), 0) AS total_energy_kwh
+     FROM devices d
+     LEFT JOIN device_latest_state ls ON ls.sn = d.sn
+     LEFT JOIN customers c ON c.id = d.customer_id
+     WHERE d.registry_status IN ('registered', 'auto')
+     GROUP BY d.customer_id, c.name, d.project_name
+     ORDER BY COUNT(*) DESC, c.name NULLS LAST, d.project_name NULLS LAST`,
+    [win]
+  );
+  const items = res.rows.map((r) => ({
+    customerId: r.customer_id === null || r.customer_id === undefined ? null : int(r.customer_id),
+    customerName: (r.customer_name as string | null) ?? null,
+    projectName: (r.project_name as string | null) ?? null,
+    devices: int(r.devices),
+    online: int(r.online),
+    totalEnergyKwh: num(r.total_energy_kwh) ?? 0
+  }));
+  const totalDevices = items.reduce((acc, it) => acc + it.devices, 0);
+  return { totalDevices, items, generatedAt: new Date().toISOString() };
+};
+
 /** A roll-up node (counts that aggregate upward through the tree). */
 export interface HierarchyStats {
   total: number;
