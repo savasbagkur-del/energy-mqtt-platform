@@ -209,6 +209,16 @@
     }
     setConn(true);
     markUpdated();
+    if (opts.blob) {
+      if (!res.ok) {
+        let errJson = null;
+        try { errJson = await res.json(); } catch { /* ignore */ }
+        const err = new Error((errJson && errJson.error) || `HTTP ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
+      return res.blob();
+    }
     if (opts.rawText) {
       if (!res.ok) {
         let errJson = null;
@@ -1836,32 +1846,47 @@
 
   async function downloadCustomerImportTemplate() {
     try {
-      const text = await api("GET", "/customers/import/template", undefined, { rawText: true });
-      const blob = new Blob(["\uFEFF", text], { type: "text/csv;charset=utf-8" });
+      const blob = await api("GET", "/customers/import/template", undefined, { blob: true });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "musteri-sayac-sablonu.csv";
+      a.download = "musteri-sayac-sablonu.xlsx";
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(a.href);
-      toast("Şablon indirildi", "Excel ile açıp doldurun", "success");
+      toast("Excel şablonu indirildi", "Doldurup Toplu yükle ile geri yükleyin", "success");
     } catch (e) { toast("Hata", e.message, "error"); }
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const buf = reader.result;
+        if (!(buf instanceof ArrayBuffer)) { reject(new Error("read_failed")); return; }
+        const bytes = new Uint8Array(buf);
+        let bin = "";
+        for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
+        resolve(btoa(bin));
+      };
+      reader.onerror = () => reject(reader.error || new Error("read_failed"));
+      reader.readAsArrayBuffer(file);
+    });
   }
 
   function openCustomerImportModal() {
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal xl">
         <div class="modal-head"><h3>Toplu müşteri yükleme</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
-        <p class="muted">Excel şablonunu doldurup <strong>CSV olarak kaydedin</strong> veya aşağıya yapıştırın. Aynı müşteri için her sayaç ayrı satırdır (müşteri bilgileri tekrarlanır).</p>
+        <p class="muted">Profesyonel Excel şablonunu indirin, sahadaki bilgileri doldurun ve <strong>.xlsx</strong> olarak kaydedip yükleyin. Her sayaç ayrı satırdır (aynı müşteri bilgileri tekrarlanır).</p>
         <div class="panel-inset import-help">
-          <strong>Şablon sütunları:</strong> musteri_adi · telefon · eposta · baglanti (panel/api) · kullanici · parola · seri_no · daire_dukkan · usage (prepaid/postpaid) · not
+          <strong>Sütunlar:</strong> Müşteri Adı · Telefon · E-posta · Bağlantı Tipi (panel/api) · Panel Kullanıcı · Parola · Sayaç Seri No · Daire/Dükkan · Usage · Not — ayrıntılar şablondaki <em>Açıklama</em> sekmesinde.
         </div>
         <div class="form-grid two" style="margin-bottom:12px">
-          <label>Dosya<input type="file" id="ciFile" accept=".csv,text/csv,.txt" /></label>
+          <label>Dosya<input type="file" id="ciFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>
           <button class="btn sm" id="ciTpl" style="align-self:end">Şablonu indir</button>
         </div>
-        <textarea id="ciText" rows="8" style="width:100%" placeholder="CSV içeriğini buraya yapıştırın…"></textarea>
+        <textarea id="ciText" rows="6" style="width:100%" placeholder="Alternatif: CSV metnini buraya yapıştırın…"></textarea>
         <div id="ciPreview"></div>
         <div class="modal-actions"><button class="btn" id="ciCancel">Vazgeç</button><button class="btn" id="ciPreviewBtn">Önizle</button><button class="btn primary" id="ciConfirm" hidden>Onayla ve yükle</button></div>
       </div></div>`;
@@ -1871,9 +1896,19 @@
     $("#ciClose").addEventListener("click", closeModal);
     $("#ciCancel").addEventListener("click", closeModal);
     $("#ciTpl").addEventListener("click", downloadCustomerImportTemplate);
+    let pendingXlsxB64 = null;
     $("#ciFile").addEventListener("change", async (e) => {
       const f = e.target.files[0];
-      if (f) $("#ciText").value = await f.text();
+      if (!f) return;
+      const name = (f.name || "").toLowerCase();
+      if (name.endsWith(".xlsx")) {
+        pendingXlsxB64 = await fileToBase64(f);
+        $("#ciText").value = "";
+        toast("Dosya seçildi", f.name, "success");
+      } else {
+        pendingXlsxB64 = null;
+        $("#ciText").value = await f.text();
+      }
     });
     const renderPreview = (data) => {
       previewData = data;
@@ -1911,9 +1946,11 @@
     };
     $("#ciPreviewBtn").addEventListener("click", async () => {
       const text = ($("#ciText").value || "").trim();
-      if (!text) { toast("Boş", "CSV içeriği gerekli", "warn"); return; }
+      if (!pendingXlsxB64 && !text) { toast("Boş", "Excel dosyası seçin veya CSV yapıştırın", "warn"); return; }
       try {
-        const data = await api("POST", "/customers/import/preview", text, { asText: true });
+        const data = pendingXlsxB64
+          ? await api("POST", "/customers/import/preview", { format: "xlsx", data: pendingXlsxB64 })
+          : await api("POST", "/customers/import/preview", text, { asText: true });
         renderPreview(data);
         toast("Önizleme hazır", `${(data.customers || []).length} müşteri · ${data.totalRows} satır`, "success");
       } catch (e) { toast("Önizleme hatası", e.message, "error"); }

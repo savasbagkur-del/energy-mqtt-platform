@@ -1,6 +1,7 @@
 import path from "node:path";
 import crypto from "node:crypto";
 import express from "express";
+import { buildCustomerImportTemplate, parseCustomerImportXlsx } from "./customer-import-xlsx.js";
 import { CostExplorerClient, GetCostAndUsageCommand, GetCostForecastCommand } from "@aws-sdk/client-cost-explorer";
 import { appConfig, generateCommandMsgid } from "@communication/core";
 import {
@@ -1464,23 +1465,45 @@ app.post("/customers", requireAdmin, async (req, res) => {
   }
 });
 
-// Customer bulk import (CSV / Excel saved as CSV).
-app.get("/customers/import/template", requireAdmin, (_req, res) => {
-  const bom = "\uFEFF";
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="musteri-sayac-sablonu.csv"');
-  res.status(200).send(bom + CUSTOMER_IMPORT_TEMPLATE);
+// Customer bulk import (Excel .xlsx template or CSV).
+app.get("/customers/import/template", requireAdmin, async (req, res) => {
+  try {
+    if (req.query.format === "csv") {
+      const bom = "\uFEFF";
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="musteri-sayac-sablonu.csv"');
+      res.status(200).send(bom + CUSTOMER_IMPORT_TEMPLATE);
+      return;
+    }
+    const buf = await buildCustomerImportTemplate();
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", 'attachment; filename="musteri-sayac-sablonu.xlsx"');
+    res.status(200).send(buf);
+  } catch (error) {
+    console.error("[api] failed to build import template", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_build_import_template" });
+  }
 });
 
 app.post("/customers/import/preview", requireAdmin, async (req, res) => {
   try {
     let rows: Array<Record<string, string>> = [];
-    if (typeof req.body === "string") {
+    const body = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : null;
+    if (body && body.format === "xlsx" && typeof body.data === "string") {
+      rows = await parseCustomerImportXlsx(Buffer.from(body.data, "base64"));
+    } else if (typeof req.body === "string") {
       rows = parseCsv(req.body);
-    } else if (req.body && typeof req.body === "object" && typeof (req.body as Record<string, unknown>).csv === "string") {
-      rows = parseCsv(String((req.body as Record<string, unknown>).csv));
+    } else if (body && typeof body.csv === "string") {
+      rows = parseCsv(String(body.csv));
     } else {
-      res.status(400).json({ error: "expected_csv_text" });
+      res.status(400).json({ error: "expected_xlsx_or_csv" });
+      return;
+    }
+    if (!rows.length) {
+      res.status(400).json({ error: "empty_import", detail: "Şablonda veri satırı bulunamadı" });
       return;
     }
     res.status(200).json(await previewCustomerImport(dbPool, rows));

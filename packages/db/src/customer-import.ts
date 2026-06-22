@@ -14,6 +14,14 @@ const pick = (row: Record<string, string>, ...keys: string[]): string => {
     const v = row[k]?.trim();
     if (v) return v;
   }
+  // Case-insensitive / Turkish header fallback (Excel export as CSV)
+  const lower = Object.fromEntries(
+    Object.entries(row).map(([k, v]) => [k.trim().toLowerCase().replace(/\*+$/, "").trim(), v])
+  );
+  for (const k of keys) {
+    const v = lower[k.trim().toLowerCase().replace(/\*+$/, "").trim()];
+    if (v?.trim()) return v.trim();
+  }
   return "";
 };
 
@@ -117,9 +125,9 @@ export const parseCustomerImportRows = (
 
   rows.forEach((row, idx) => {
     const rowNum = idx + 2;
-    const name = pick(row, "musteri_adi", "customer_name", "name", "ad_unvan");
+    const name = pick(row, "musteri_adi", "customer_name", "name", "ad_unvan", "müşteri adı", "musteri adi");
     const phone = pick(row, "telefon", "phone", "iletisim");
-    const sn = pick(row, "seri_no", "meter_sn", "sn", "seri");
+    const sn = pick(row, "seri_no", "meter_sn", "sn", "seri", "sayaç seri no", "sayac seri no");
     if (!name && !phone && !sn) return;
 
     if (!name) {
@@ -146,8 +154,8 @@ export const parseCustomerImportRows = (
         phone,
         email: pick(row, "eposta", "email") || null,
         notes: pick(row, "not", "notes") || null,
-        integrationMode: normalizeIntegration(pick(row, "baglanti", "integration_mode", "integrationMode")),
-        username: pick(row, "kullanici", "username", "kullanici_adi"),
+        integrationMode: normalizeIntegration(pick(row, "baglanti", "integration_mode", "integrationMode", "bağlantı tipi", "baglanti tipi")),
+        username: pick(row, "kullanici", "username", "kullanici_adi", "panel kullanıcı", "panel kullanici"),
         password: pick(row, "parola", "password", "sifre"),
         meters: []
       };
@@ -174,7 +182,7 @@ export const parseCustomerImportRows = (
       group.meters.push({
         rowNum,
         sn,
-        unitNo: pick(row, "daire_dukkan", "unit_no", "unitNo", "daire") || null,
+        unitNo: pick(row, "daire_dukkan", "unit_no", "unitNo", "daire", "daire / dükkan", "daire / dukkan") || null,
         meterUsage: normalizeUsage(pick(row, "usage", "meter_usage", "meterUsage") || "prepaid")
       });
     }

@@ -18,6 +18,7 @@
     "@communication/contracts": "workspace:*",
     "@communication/core": "workspace:*",
     "@communication/db": "workspace:*",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2"
   },
   "devDependencies": {
