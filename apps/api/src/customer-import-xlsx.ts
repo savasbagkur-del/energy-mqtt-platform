@@ -220,8 +220,7 @@ const writeDocumentHeader = (ws: ExcelJS.Worksheet) => {
 
   const meta: Array<[string, string]> = [
     ["Tarih", ""],
-    ["Form No", "AUTO"],
-    ["Hazırlayan", ""]
+    ["Form No", "AUTO"]
   ];
   meta.forEach(([label], i) => {
     const r = i + 1;
