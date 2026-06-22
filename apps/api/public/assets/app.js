@@ -1599,7 +1599,7 @@
             <td>${connBadges(c)}</td>
             <td class="row-actions">
               <button class="btn sm" data-keys="${esc(c.id)}">API anahtarları${c.active_key_count ? ` (${nf(c.active_key_count)})` : ""}</button>
-              <button class="btn sm ghost" data-devs="${esc(c.id)}" data-name="${esc(c.name)}">Cihazlar →</button>
+              <button class="btn sm ghost" data-detail="${esc(c.id)}">Detay →</button>
             </td>
           </tr>`).join("") : `<tr><td colspan="9" class="empty">Henüz müşteri yok. “Yeni müşteri” ile ekleyin.</td></tr>`}</tbody>
       </table></div></div>`;
@@ -1609,12 +1609,107 @@
       const c = items.find((x) => String(x.id) === b.dataset.keys);
       if (c) openApiKeysModal(c);
     }));
-    $$("[data-devs]", view).forEach((b) => b.addEventListener("click", () => {
-      devicesState.project = ""; devicesState.q = ""; devicesState.status = ""; devicesState.online = ""; devicesState.page = 0;
-      devicesState.customer = b.dataset.devs; devicesState.customerLabel = b.dataset.name || "";
-      navigate("#/devices");
+    $$("[data-detail]", view).forEach((b) => b.addEventListener("click", () => {
+      navigate(`#/customer/${encodeURIComponent(b.dataset.detail)}`);
     }));
+    $$("tr[data-cust] td:first-child b", view).forEach((el) => {
+      el.style.cursor = "pointer";
+      el.addEventListener("click", () => {
+        const tr = el.closest("tr");
+        if (tr && tr.dataset.cust) navigate(`#/customer/${encodeURIComponent(tr.dataset.cust)}`);
+      });
+    });
     state.refresher = renderCustomers;
+  }
+
+  const LIFECYCLE_LABEL = {
+    registered: "Kayıtlı",
+    commissioned: "Devreye alındı",
+    active: "Aktif",
+    decommissioned: "Kapalı",
+    unknown: "Bilinmiyor"
+  };
+
+  async function renderCustomerDetail(customerId, silent) {
+    if (!silent) view.innerHTML = `<div class="loading">Yükleniyor…</div>`;
+    let customer, devices;
+    const win = state.settings.onlineWindowSec;
+    try {
+      [customer, devices] = await Promise.all([
+        api("GET", `/customers/${encodeURIComponent(customerId)}?window=${win}`),
+        api("GET", `/fleet/devices?customer=${encodeURIComponent(customerId)}&limit=200&window=${win}`)
+      ]);
+    } catch (e) {
+      if (!silent) {
+        if (e.status === 404) view.innerHTML = errorBox(new Error("Müşteri bulunamadı"));
+        else view.innerHTML = errorBox(e);
+      }
+      return;
+    }
+    const devItems = devices.items || [];
+    const acctRow = (label, val, mono) => `<div class="acct-row"><span class="acct-lbl">${esc(label)}</span><span class="acct-val${mono ? " mono" : ""}">${val}</span></div>`;
+    const acctHtml = `
+      <div class="panel cust-acct-panel">
+        <div class="panel-head"><h2>Hesap detayları</h2><div class="panel-actions">${connBadges(customer)}</div></div>
+        <div class="panel-pad acct-grid">
+          ${acctRow("Ad / Unvan", esc(customer.name))}
+          ${acctRow("İletişim", esc(customer.phone || "—"), true)}
+          ${acctRow("E-posta", esc(customer.email || "—"))}
+          ${acctRow("Panel kullanıcı adı", esc(customer.panel_username || "—"), true)}
+          ${acctRow("Kayıt tarihi", fmtDate(customer.created_at))}
+          ${acctRow("Aktivasyon", customer.activated_at ? fmtDate(customer.activated_at) : `<span class="pill off sm">bekliyor</span>`)}
+          ${acctRow("Sayaç", `${nf(customer.online_count)} çevrimiçi / ${nf(customer.device_count)} toplam`)}
+        </div>
+      </div>`;
+    const devRow = (d) => {
+      const st = d.online ? `<span class="pill on sm"><span class="pdot"></span>Çevrimiçi</span>` : `<span class="pill off sm"><span class="pdot"></span>Çevrimdışı</span>`;
+      const lc = LIFECYCLE_LABEL[d.lifecycle_status] || d.lifecycle_status || "—";
+      return `<tr data-sn="${esc(d.sn)}">
+        <td>${st}</td>
+        <td class="mono">${esc(d.sn)}</td>
+        <td>${esc(d.label || "—")}</td>
+        <td>${esc(d.model || "—")}</td>
+        <td class="muted">${esc(lc)}</td>
+        <td class="muted">${d.last_seen_at ? timeAgo(d.last_seen_at) : "—"}</td>
+        <td class="row-actions"><button class="btn sm ghost" data-open-sn="${esc(d.sn)}">Detay →</button></td>
+      </tr>`;
+    };
+    view.innerHTML = `
+      <div class="page-head">
+        <div>
+          <button class="btn sm ghost" id="custBack">← Müşteriler</button>
+          <h1 style="margin-top:10px">${esc(customer.name)}</h1>
+          <div class="sub">Müşteri hesabı ve sayaçları</div>
+        </div>
+        <div class="head-actions">
+          ${isAdmin() ? `<button class="btn" id="custKeys">API anahtarları</button>` : ""}
+          <button class="btn primary" id="custAddMeter"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Sayaç ekle</button>
+        </div>
+      </div>
+      ${acctHtml}
+      <div class="panel">
+        <div class="panel-head"><h2>Sayaçlar</h2><span class="panel-note">${nf(devItems.length)} kayıt</span></div>
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Durum</th><th>SN</th><th>Etiket</th><th>Model</th><th>Yaşam döngüsü</th><th>Son görülme</th><th></th></tr></thead>
+          <tbody>${devItems.length ? devItems.map(devRow).join("") : `<tr><td colspan="7" class="empty">Henüz sayaç yok. “Sayaç ekle” ile kaydedin.</td></tr>`}</tbody>
+        </table></div>
+      </div>`;
+
+    $("#custBack").addEventListener("click", () => navigate("#/customers"));
+    $("#custAddMeter").addEventListener("click", () => {
+      openRegisterModal({ customer_id: customerId }, { lockCustomer: true, customerId, onSaved: () => renderCustomerDetail(customerId) });
+    });
+    const keysBtn = $("#custKeys");
+    if (keysBtn) keysBtn.addEventListener("click", () => openApiKeysModal(customer));
+    $$("[data-open-sn]", view).forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      navigate(`#/device/${encodeURIComponent(b.dataset.openSn)}`);
+    }));
+    $$("tr[data-sn]", view).forEach((tr) => tr.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      navigate(`#/device/${encodeURIComponent(tr.dataset.sn)}`);
+    }));
+    state.refresher = (s) => renderCustomerDetail(customerId, s);
   }
 
   function openCustomerModal() {
@@ -2256,10 +2351,12 @@
     }
   }
 
-  async function openRegisterModal(row) {
+  async function openRegisterModal(row, opts = {}) {
     await ensureLookups();
-    const editing = !!row;
-    const cuOpts = `<option value="">— yok —</option>` + state.lookups.customers.map((c) => `<option value="${esc(c.id)}" ${row && row.customer_id == c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+    const editing = !!row && !!row.sn;
+    const lockCustomer = !!(opts.lockCustomer || opts.customerId);
+    const presetCustomerId = opts.customerId || (row && row.customer_id) || "";
+    const cuOpts = `<option value="">— yok —</option>` + state.lookups.customers.map((c) => `<option value="${esc(c.id)}" ${String(c.id) === String(presetCustomerId) ? "selected" : ""}>${esc(c.name)}</option>`).join("");
     const ptOpts = `<option value="">— seçin —</option>` + state.lookups.propertyTypes.map((p) => `<option value="${esc(p.id)}" ${row && row.property_type_id == p.id ? "selected" : ""}>${esc(p.label)}</option>`).join("");
     const tmCur = (row && row.telemetry_mode) ? row.telemetry_mode : "consumption";
     const tmOpts = [["consumption", "Tüketim izleme (voltaj · akım · enerji)"], ["analysis", "Enerji analiz (+ güç · güç faktörü)"]]
@@ -2275,7 +2372,7 @@
           <div class="field"><label>Yerleşke</label><input id="rf_site_name" value="${v("site_name")}" placeholder="örn. Mavişehir Sitesi" /></div>
           <div class="field"><label>Bina / Proje adı</label><input id="rf_project_name" value="${v("project_name")}" placeholder="örn. A Blok / SavasEvi" /></div>
           <div class="field"><label>Abone / Sözleşme No *</label><input id="rf_subscriber_no" value="${v("subscriber_no")}" /></div>
-          <div class="field"><label>Müşteri (kimin adına) *</label><select id="rf_customer_id">${cuOpts}</select></div>
+          <div class="field"><label>Müşteri (kimin adına) *</label><select id="rf_customer_id"${lockCustomer ? " disabled" : ""}>${cuOpts}</select>${lockCustomer ? `<input type="hidden" id="rf_customer_id_lock" value="${esc(presetCustomerId)}" />` : ""}</div>
           <div class="field"><label>Mülk tipi *</label><select id="rf_property_type_id">${ptOpts}</select></div>
           <div class="field"><label>İzleme tipi</label><select id="rf_telemetry_mode">${tmOpts}</select></div>
           <div class="field"><label>Ürün anahtarı</label><input id="rf_product_key" value="${v("product_key")}" /></div>
@@ -2298,9 +2395,11 @@
       const num = (id) => { const s = t(id); return s === undefined ? undefined : Number(s); };
       const sn = ($("#rf_sn").value || "").trim();
       if (!sn) { toast("SN gerekli", "", "warn"); return; }
+      const custLock = $("#rf_customer_id_lock");
+      const customerIdVal = custLock ? custLock.value : t("rf_customer_id");
       const bodyObj = {
         sn, label: t("rf_label"), project_name: t("rf_project_name"), site_name: t("rf_site_name"), subscriber_no: t("rf_subscriber_no"),
-        customer_id: t("rf_customer_id"), property_type_id: num("rf_property_type_id"),
+        customer_id: customerIdVal, property_type_id: num("rf_property_type_id"),
         product_key: t("rf_product_key"), telemetry_mode: t("rf_telemetry_mode"),
         tariff: t("rf_tariff"), region: t("rf_region"), dealer: t("rf_dealer"),
         address_line: t("rf_address_line"), district: t("rf_district"), city: t("rf_city"),
@@ -2309,7 +2408,9 @@
       try {
         if (editing) await api("PATCH", `/registry/devices/${encodeURIComponent(sn)}`, bodyObj);
         else await api("POST", "/registry/devices", bodyObj);
-        toast("Kaydedildi", sn, "success"); closeModal(); reloadCurrentView();
+        toast("Kaydedildi", sn, "success"); closeModal();
+        if (opts.onSaved) opts.onSaved();
+        else reloadCurrentView();
       } catch (e) { toast("Kayıt hatası", e.message, "error"); }
     });
   }
@@ -2360,7 +2461,7 @@
   function navigate(hash) { if (location.hash === hash) router(); else location.hash = hash; }
   function reloadCurrentView() { router(); }
 
-  const NAV = { overview: "overview", devices: "devices", device: "devices", customers: "customers", billing: "billing", alarms: "alarms", registry: "registry", settings: "settings" };
+  const NAV = { overview: "overview", devices: "devices", device: "devices", customers: "customers", customer: "customers", billing: "billing", alarms: "alarms", registry: "registry", settings: "settings" };
   function setNavActive(name) {
     const target = NAV[name] || "overview";
     $$(".nav-item").forEach((a) => a.classList.toggle("active", a.dataset.route === target));
@@ -2382,6 +2483,7 @@
         case "overview": await renderOverview(); break;
         case "devices": await renderDevices(); break;
         case "customers": await renderCustomers(); break;
+        case "customer": if (r.param) await renderCustomerDetail(r.param); else navigate("#/customers"); break;
         case "billing": await renderBilling(); break;
         case "device": if (r.param) await renderDevice(r.param); else navigate("#/devices"); break;
         case "alarms": await renderAlarms(); break;

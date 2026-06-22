@@ -45,6 +45,7 @@ import {
   listCustomers,
   createCustomer,
   createCustomerWithAccount,
+  getCustomerDetailById,
   listCustomersOverview,
   updateCustomer,
   listApiKeys,
@@ -1428,6 +1429,26 @@ app.get("/customers/overview", async (req, res) => {
   } catch (error) {
     console.error("[api] failed to list customers overview", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_list_customers_overview" });
+  }
+});
+
+app.get("/customers/:id", async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "id_required" });
+    return;
+  }
+  try {
+    const win = typeof req.query.window === "string" ? Number(req.query.window) : 300;
+    const row = await getCustomerDetailById(dbPool, id, Number.isFinite(win) ? win : 300);
+    if (!row) {
+      res.status(404).json({ error: "customer_not_found" });
+      return;
+    }
+    res.status(200).json(row);
+  } catch (error) {
+    console.error("[api] failed to get customer", { id, message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_get_customer" });
   }
 });
 

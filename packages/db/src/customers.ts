@@ -68,6 +68,52 @@ export const listCustomersOverview = async (
   }));
 };
 
+/** Single customer with the same enrichment as listCustomersOverview. */
+export const getCustomerDetailById = async (
+  pool: Pool,
+  id: string,
+  onlineWindowSec = 300
+): Promise<CustomerOverviewRow | null> => {
+  const win = Math.max(30, Math.min(86400, Math.floor(onlineWindowSec)));
+  const res = await pool.query(
+    `SELECT
+       c.id, c.name, c.phone, c.email, c.notes, c.panel_enabled, c.created_at,
+       MAX(pu.username) AS panel_username,
+       COUNT(DISTINCT d.sn) AS device_count,
+       COUNT(DISTINCT d.sn) FILTER (
+         WHERE ls.last_seen_at >= NOW() - INTERVAL '${win} seconds'
+       ) AS online_count,
+       COUNT(DISTINCT k.id) FILTER (WHERE k.is_active) AS active_key_count,
+       MAX(k.last_used_at) AS last_api_used_at,
+       MIN(d.commissioned_at) FILTER (WHERE d.commissioned_at IS NOT NULL) AS activated_at
+     FROM customers c
+     LEFT JOIN devices d ON d.customer_id = c.id
+     LEFT JOIN device_latest_state ls ON ls.sn = d.sn
+     LEFT JOIN customer_api_keys k ON k.customer_id = c.id
+     LEFT JOIN panel_users pu ON pu.customer_id = c.id AND pu.is_active = TRUE
+     WHERE c.id = $1
+     GROUP BY c.id`,
+    [id]
+  );
+  const r = res.rows[0];
+  if (!r) return null;
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    phone: (r.phone as string | null) ?? null,
+    email: (r.email as string | null) ?? null,
+    notes: (r.notes as string | null) ?? null,
+    panel_enabled: r.panel_enabled === true,
+    panel_username: (r.panel_username as string | null) ?? null,
+    device_count: int(r.device_count),
+    online_count: int(r.online_count),
+    active_key_count: int(r.active_key_count),
+    last_api_used_at: (r.last_api_used_at as string | null) ?? null,
+    created_at: String(r.created_at),
+    activated_at: (r.activated_at as string | null) ?? null
+  };
+};
+
 export interface CustomerDetailRow {
   id: string;
   name: string;
