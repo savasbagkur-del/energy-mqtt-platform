@@ -62,6 +62,95 @@
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
   )));
 
+  const IC_SEARCH = `<svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+  const IC_CLOSE = `<svg viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+
+  function snMatchesQuarantineQuery(sn, query) {
+    const s = String(sn || "").toLowerCase();
+    const t = String(query || "").trim().toLowerCase();
+    if (!t || t.length < 2) return false;
+    if (s.includes(t)) return true;
+    return s.endsWith(t.slice(-2));
+  }
+
+  async function fetchQuarantineMatches(query) {
+    const q = String(query || "").trim();
+    if (q.length < 2) return [];
+    const res = await api("GET", `/registry/devices?status=quarantined&q=${encodeURIComponent(q)}&limit=80`);
+    let items = (res.items || []).filter((d) => snMatchesQuarantineQuery(d.sn, q));
+    if (!items.length && q.length > 2) {
+      const tail = q.slice(-2);
+      const res2 = await api("GET", `/registry/devices?status=quarantined&q=${encodeURIComponent(tail)}&limit=80`);
+      items = (res2.items || []).filter((d) => snMatchesQuarantineQuery(d.sn, q));
+    }
+    return items;
+  }
+
+  function snSearchFieldHtml(opts) {
+    const o = typeof opts === "string" ? { inputClass: opts, placeholder: arguments[1] } : (opts || {});
+    const inputClass = o.inputClass || "m-sn";
+    const inputId = o.inputId ? ` id="${esc(o.inputId)}"` : "";
+    const value = o.value != null && o.value !== "" ? ` value="${esc(o.value)}"` : "";
+    const placeholder = o.placeholder || "SN";
+    return `<div class="sn-search-wrap">
+      <input class="${esc(inputClass)}"${inputId}${value} placeholder="${esc(placeholder)}" autocomplete="off" />
+      <button type="button" class="btn sm icon m-search" title="Karantinada ara">${IC_SEARCH}</button>
+      <div class="sn-suggest" hidden>
+        <div class="sn-suggest-head">Karantinadaki eşleşmeler</div>
+        <div class="sn-suggest-list"></div>
+      </div>
+    </div>`;
+  }
+
+  function bindSnQuarantineSearch(wrap) {
+    if (!wrap || wrap.dataset.bound) return;
+    wrap.dataset.bound = "1";
+    const input = wrap.querySelector("input");
+    const btn = wrap.querySelector(".m-search");
+    const list = wrap.querySelector(".sn-suggest");
+    const listBody = wrap.querySelector(".sn-suggest-list");
+    let timer = null;
+
+    const renderList = (items) => {
+      if (!list || !listBody) return;
+      if (!items.length) {
+        listBody.innerHTML = `<div class="sn-suggest-empty muted">Eşleşen karantina cihazı yok</div>`;
+        list.hidden = false;
+        return;
+      }
+      listBody.innerHTML = items.map((d) => `
+        <button type="button" class="sn-pick" data-sn="${esc(d.sn)}">
+          <span><span class="mono">${esc(d.sn)}</span>${d.model ? `<span class="muted"> · ${esc(d.model)}</span>` : ""}${d.last_seen_at ? `<span class="muted"> · ${esc(timeAgo(d.last_seen_at))}</span>` : ""}</span>
+          <span class="sn-pick-act">Seç</span>
+        </button>`).join("");
+      list.hidden = false;
+      listBody.querySelectorAll(".sn-pick").forEach((b) => b.addEventListener("click", (e) => {
+        e.preventDefault();
+        input.value = b.dataset.sn || "";
+        list.hidden = true;
+      }));
+    };
+
+    const runSearch = async () => {
+      const q = (input?.value || "").trim();
+      if (q.length < 2) { toast("Arama", "En az 2 karakter girin (ör. son iki hane)", "warn"); return; }
+      try { renderList(await fetchQuarantineMatches(q)); }
+      catch (e) { toast("Arama hatası", e.message, "error"); }
+    };
+
+    btn?.addEventListener("click", (e) => { e.preventDefault(); runSearch(); });
+    input?.addEventListener("input", () => {
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (q.length < 2) { if (list) list.hidden = true; return; }
+      timer = setTimeout(runSearch, 350);
+    });
+    input?.addEventListener("focus", () => {
+      const q = input.value.trim();
+      if (q.length >= 2 && listBody && listBody.childElementCount) list.hidden = false;
+    });
+  }
+
   // ---------------------------------------------------------------- formatting
   const nfMap = {};
   const nf = (v, digits = 0) => {
@@ -1721,14 +1810,17 @@
   function openCustomerModal() {
     const meterRowHtml = () => `
       <div class="meter-onboard-row">
-        <label>Seri no<input class="m-sn" placeholder="SN" autocomplete="off" /></label>
+        <label class="sn-field">Seri no${snSearchFieldHtml({ inputClass: "m-sn", placeholder: "SN veya son 2 hane" })}</label>
         <label>Daire / dükkan no<input class="m-unit" placeholder="Örn. A-12" autocomplete="off" /></label>
         <label>Usage<select class="m-usage"><option value="prepaid" selected>Prepaid</option><option value="postpaid">Postpaid</option></select></label>
         <button type="button" class="btn sm ghost m-remove" title="Satırı kaldır">✕</button>
       </div>`;
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal lg">
-        <h3>Yeni müşteri hesabı</h3>
+        <div class="modal-head">
+          <h3>Yeni müşteri hesabı</h3>
+          <button type="button" class="modal-close" id="cuClose" aria-label="Kapat">${IC_CLOSE}</button>
+        </div>
         <p class="muted" style="margin:0 0 14px">Zorunlu alanlar (*) ile işaretlidir. Kayıt tarihi otomatik atanır; aktivasyon tarihi ilk sayaç devreye girdiğinde oluşur.</p>
         <div class="form-section-h">Müşteri bilgileri</div>
         <div class="form-grid">
@@ -1774,6 +1866,7 @@
     syncMode();
     const metersEl = $("#cuMeters");
     const bindMeterRow = (row) => {
+      bindSnQuarantineSearch(row.querySelector(".sn-search-wrap"));
       const rm = row.querySelector(".m-remove");
       if (rm) rm.addEventListener("click", () => {
         if (metersEl.querySelectorAll(".meter-onboard-row").length > 1) row.remove();
@@ -1793,6 +1886,7 @@
       bindMeterRow(row);
     });
     $("#cuCancel").addEventListener("click", closeModal);
+    $("#cuClose").addEventListener("click", closeModal);
     $("#cuSave").addEventListener("click", async () => {
       const name = $("#cuName").value.trim();
       const phone = $("#cuPhone").value.trim();
@@ -2402,7 +2496,12 @@
   // ================================================================ FORMS (modals)
   const modalMount = $("#modalMount");
   function closeModal() { modalMount.innerHTML = ""; }
-  modalMount.addEventListener("click", (e) => { if (e.target.classList.contains("modal-backdrop")) closeModal(); });
+  modalMount.addEventListener("click", (e) => {
+    if (e.target.classList.contains("modal-backdrop")) closeModal();
+    else if (!e.target.closest(".sn-search-wrap")) {
+      $$(".sn-suggest", modalMount).forEach((el) => { el.hidden = true; });
+    }
+  });
 
   async function approveDevice(sn, after) {
     try {
@@ -2433,10 +2532,15 @@
     const v = (k) => esc((row && row[k] != null) ? row[k] : "");
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal lg">
-        <h3>${editing ? "Sayaç düzenle: " + esc(row.sn) : "Yeni sayaç kaydet"}</h3>
+        <div class="modal-head">
+          <h3>${editing ? "Sayaç düzenle: " + esc(row.sn) : "Yeni sayaç kaydet"}</h3>
+          <button type="button" class="modal-close" id="rfClose" aria-label="Kapat">${IC_CLOSE}</button>
+        </div>
         <p class="muted">Kayıtlı (registered) cihazlar whitelist'e girer ve yönetilir. Yalnızca dolu alanlar güncellenir. <strong>*</strong> ile işaretli alanlar cihaz <strong>onaylanmadan</strong> önce zorunludur.</p>
         <div class="form-grid">
-          <div class="field"><label>SN *</label><input id="rf_sn" value="${v("sn")}" ${editing ? "disabled" : ""} /></div>
+          <div class="field sn-field">${editing
+    ? `<label>SN *</label><input id="rf_sn" value="${v("sn")}" disabled />`
+    : `<label>SN *</label>${snSearchFieldHtml({ inputId: "rf_sn", inputClass: "rf-sn-input", placeholder: "SN veya son 2 hane" })}`}</div>
           <div class="field"><label>Etiket / Ad</label><input id="rf_label" value="${v("label")}" /></div>
           <div class="field"><label>Yerleşke</label><input id="rf_site_name" value="${v("site_name")}" placeholder="örn. Mavişehir Sitesi" /></div>
           <div class="field"><label>Bina / Proje adı</label><input id="rf_project_name" value="${v("project_name")}" placeholder="örn. A Blok / SavasEvi" /></div>
@@ -2459,6 +2563,8 @@
         <div class="modal-actions"><button class="btn ghost" id="rfCancel">Vazgeç</button><button class="btn primary" id="rfSave">Kaydet</button></div>
       </div></div>`;
     $("#rfCancel").addEventListener("click", closeModal);
+    $("#rfClose").addEventListener("click", closeModal);
+    if (!editing) bindSnQuarantineSearch($(".sn-search-wrap", modalMount));
     $("#rfSave").addEventListener("click", async () => {
       const t = (id) => { const el = $("#" + id); const s = (el.value || "").trim(); return s === "" ? undefined : s; };
       const num = (id) => { const s = t(id); return s === undefined ? undefined : Number(s); };

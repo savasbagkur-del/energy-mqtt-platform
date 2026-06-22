@@ -574,6 +574,20 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .modal.xl { width: min(1180px, 100%); max-height: 92vh; overflow: auto; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
 .modal-head h3 { margin: 0; }
+.modal-close { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--muted); cursor: pointer; flex: none; padding: 0; }
+.modal-close:hover { color: var(--txt); background: var(--panel-3); border-color: color-mix(in srgb, var(--line) 60%, var(--txt)); }
+.modal-close .ic { width: 18px; height: 18px; }
+.sn-search-wrap { position: relative; display: flex; gap: 6px; align-items: stretch; width: 100%; }
+.sn-search-wrap input { flex: 1; min-width: 0; }
+.sn-search-wrap .m-search { flex: none; padding: 0 10px; height: 36px; }
+.sn-field { position: relative; }
+.sn-suggest { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-lg); max-height: 240px; overflow: auto; }
+.sn-suggest-head { padding: 8px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
+.sn-suggest-empty { padding: 12px; font-size: 13px; }
+.sn-pick { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: none; background: transparent; text-align: left; cursor: pointer; font-size: 13px; color: var(--txt); border-bottom: 1px solid var(--line); }
+.sn-pick:last-child { border-bottom: none; }
+.sn-pick:hover { background: var(--panel-2); }
+.sn-pick-act { font-size: 11.5px; font-weight: 700; color: var(--brand-text); background: var(--brand-soft); padding: 3px 9px; border-radius: 999px; flex: none; }
 
 /* presence uptime timeline (device detail) */
 .pt-summary { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 12.5px; flex-wrap: wrap; }
@@ -701,8 +715,9 @@ table.data tfoot td.num { text-align: right; font-family: var(--mono); }
 .integration-seg .seg-btn { border: none; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
 .integration-seg .seg-btn.active { background: var(--brand-soft); color: var(--brand-text); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
 .integration-hint { margin: 0 0 12px; font-size: 13px; }
-.meter-onboard-row { display: grid; grid-template-columns: 1.2fr 1fr 0.9fr auto; gap: 10px; align-items: end; margin-bottom: 10px; }
-.meter-onboard-row label { margin: 0; font-size: 12px; }
+.meter-onboard-row { display: grid; grid-template-columns: 1.35fr 1fr 0.9fr auto; gap: 10px; align-items: end; margin-bottom: 10px; }
+.meter-onboard-row label { margin: 0; font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
+.meter-onboard-row label.sn-field { position: relative; }
 .meter-onboard-row .m-remove { align-self: end; margin-bottom: 2px; }
 @media (max-width: 720px) {
   .meter-onboard-row { grid-template-columns: 1fr 1fr; }
