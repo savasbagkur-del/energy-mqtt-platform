@@ -150,13 +150,14 @@ deploy_verify_stack() {
   fi
 
   # Wrong DB creds return 500 login_failed; correct wiring returns 401 invalid_credentials.
-  local login_body login_code
-  login_body="$(curl -fsS -X POST "http://127.0.0.1:${api_port}/auth/login" \
-    -H "Content-Type: application/json" \
-    -d '{"username":"admin","password":"__deploy_probe__"}' 2>/dev/null || echo '{}')"
-  login_code="$(curl -fsS -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${api_port}/auth/login" \
+  # Do not use curl -f here: 401 is the expected success signal and -f treats it as failure.
+  local login_body login_code login_tmp
+  login_tmp="$(mktemp)"
+  login_code="$(curl -sS -o "${login_tmp}" -w '%{http_code}' -X POST "http://127.0.0.1:${api_port}/auth/login" \
     -H "Content-Type: application/json" \
     -d '{"username":"admin","password":"__deploy_probe__"}' 2>/dev/null || echo 000)"
+  login_body="$(tr -d '\n' < "${login_tmp}" 2>/dev/null || echo '{}')"
+  rm -f "${login_tmp}"
   if [[ "${login_code}" == "401" ]]; then
     echo "[deploy]   auth/login: ok (401 invalid_credentials — DB reachable)"
   else
