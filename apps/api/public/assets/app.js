@@ -1960,6 +1960,7 @@
               ${fld("Parola", c.hasPassword ? "••••••••" : "—")}
               ${fld("Müşteri Notu", esc(c.notes || "—"))}
             </div>
+            <p class="muted import-panel-hint">Panel girişi tüm müşterilerde oluşturulur. 3. parti entegrasyonu API anahtarı ile yapılır; panel parolasını 3. partiye vermeyin veya maskeleyin.</p>
             ${bad ? `<div class="panel-inset bad-soft import-block-err">${c.errors.map((x) => esc(x)).join(" · ")}</div>` : ""}
           </div>
           <div class="import-form-section">
@@ -2146,11 +2147,10 @@
     const panelBlock = $("#cuPanelBlock");
     const modeHint = $("#cuModeHint");
     const syncMode = () => {
-      const isPanel = integrationMode === "panel";
-      panelBlock.style.display = isPanel ? "" : "none";
-      modeHint.textContent = isPanel
+      panelBlock.style.display = "";
+      modeHint.textContent = integrationMode === "panel"
         ? "Müşteri bu panelden giriş yaparak sayaçlarını görür."
-        : "Müşteri kendi yazılımını API anahtarı ile bağlar; panel girişi oluşturulmaz.";
+        : "3. parti yazılım API anahtarı ile bağlanır. Müşteri aşağıdaki giriş bilgileriyle bu panele de girebilir — 3. partiye API anahtarı verin, panel parolasını paylaşmayın veya maskeleyin.";
       $$("#cuModeSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === integrationMode));
     };
     $$("#cuModeSeg .seg-btn").forEach((b) => b.addEventListener("click", () => {
@@ -2184,7 +2184,6 @@
     $("#cuSave").addEventListener("click", async () => {
       const name = $("#cuName").value.trim();
       const phone = $("#cuPhone").value.trim();
-      const panelOn = integrationMode === "panel";
       const username = $("#cuUser").value.trim();
       const pass = $("#cuPass").value;
       const pass2 = $("#cuPass2").value;
@@ -2201,20 +2200,18 @@
       if (meterErr === "sn_required") { toast("Eksik", "Sayaç satırında seri numarası zorunlu", "error"); return; }
       if (!name) { toast("Eksik", "Ad / unvan zorunlu", "error"); return; }
       if (!phone || phone.replace(/\D/g, "").length < 10) { toast("Eksik", "Geçerli iletişim numarası zorunlu", "error"); return; }
-      if (panelOn) {
-        if (!username || username.length < 3) { toast("Eksik", "Kullanıcı adı zorunlu (min 3 karakter)", "error"); return; }
-        if (pass.length < 8) { toast("Eksik", "Parola en az 8 karakter olmalı", "error"); return; }
-        if (pass !== pass2) { toast("Eksik", "Parolalar eşleşmiyor", "error"); return; }
-      }
+      if (!username || username.length < 3) { toast("Eksik", "Giriş kullanıcı adı zorunlu (min 3 karakter)", "error"); return; }
+      if (pass.length < 8) { toast("Eksik", "Parola en az 8 karakter olmalı", "error"); return; }
+      if (pass !== pass2) { toast("Eksik", "Parolalar eşleşmiyor", "error"); return; }
       try {
         const created = await api("POST", "/customers", {
           name,
           phone,
           email: $("#cuEmail").value.trim() || null,
           integrationMode,
-          panelEnabled: panelOn,
-          username: panelOn ? username : undefined,
-          password: panelOn ? pass : undefined,
+          panelEnabled: true,
+          username,
+          password: pass,
           meters: meters.length ? meters : undefined
         });
         const meterMsg = created.meters_registered ? ` · ${created.meters_registered} sayaç eklendi` : "";

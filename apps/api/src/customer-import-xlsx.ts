@@ -173,7 +173,7 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
     error: "panel veya api yazın"
   };
 
-  styleLabel(ws.getCell(R + 4, 1), "Giriş kullanıcı adı");
+  styleLabel(ws.getCell(R + 4, 1), "Giriş kullanıcı adı *");
   ws.mergeCells(R + 4, 1, R + 4, 2);
   mergeStyle(ws, R + 4, 3, R + 4, 4, false);
   styleLabel(ws.getCell(R + 4, 5), "E-posta");

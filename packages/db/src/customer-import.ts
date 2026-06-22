@@ -306,15 +306,8 @@ export const previewCustomerImport = async (
 
   for (const g of groups) {
     const groupErrors: string[] = [];
-    if (g.integrationMode === "panel") {
-      if (!g.username || g.username.length < 3) groupErrors.push("panel modu: kullanici en az 3 karakter");
-      if (!g.password || g.password.length < 8) groupErrors.push("panel modu: parola en az 8 karakter");
-    } else {
-      const hasUser = Boolean(g.username?.trim());
-      const hasPass = g.password.length >= 8;
-      if (hasUser && !hasPass) groupErrors.push("parola en az 8 karakter (kullanici adi dolu)");
-      if (hasPass && (!hasUser || g.username.length < 3)) groupErrors.push("kullanici en az 3 karakter (parola dolu)");
-    }
+    if (!g.username || g.username.length < 3) groupErrors.push("giriş kullanıcı adı en az 3 karakter");
+    if (!g.password || g.password.length < 8) groupErrors.push("parola en az 8 karakter");
 
     const meters: CustomerImportMeterPreview[] = [];
     for (const m of g.meters) {
@@ -356,7 +349,7 @@ export const applyCustomerImport = async (
       const username = (c.username || "").trim();
       const password = c.password || "";
       const hasPanelCreds = username.length >= 3 && (password.length >= 8 || Boolean(c.passwordHash));
-      const panelOn = integrationMode === "panel" || hasPanelCreds;
+      const panelOn = hasPanelCreds;
       const metersInput: CreateCustomerAccountInput["meters"] = [];
 
       for (const m of c.meters ?? []) {

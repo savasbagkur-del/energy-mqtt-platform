@@ -1386,7 +1386,15 @@ app.post("/customers", requireAdmin, async (req, res) => {
       ? body.integration_mode.trim().toLowerCase()
       : "";
   const integrationMode = integrationRaw === "api" ? "api" : "panel";
-  const panelEnabled = integrationMode === "panel" && body.panelEnabled !== false && body.panel_enabled !== false;
+  if (!isValidUsername(username)) {
+    res.status(400).json({ error: "invalid_username", detail: "Giriş kullanıcı adı 3–32 karakter (harf, rakam, . _ -)" });
+    return;
+  }
+  if (password.length < 8) {
+    res.status(400).json({ error: "weak_password", detail: "Parola en az 8 karakter olmalı" });
+    return;
+  }
+  const panelEnabled = body.panelEnabled !== false && body.panel_enabled !== false;
 
   const parseMeters = (): Array<{ sn: string; unitNo: string | null; meterUsage: "prepaid" | "analysis" }> => {
     const raw = body.meters;
@@ -1423,16 +1431,6 @@ app.post("/customers", requireAdmin, async (req, res) => {
     res.status(400).json({ error: "phone_required", detail: "Geçerli iletişim numarası zorunlu (10–15 hane)" });
     return;
   }
-  if (panelEnabled) {
-    if (!isValidUsername(username)) {
-      res.status(400).json({ error: "invalid_username", detail: "Kullanıcı adı 3–32 karakter (harf, rakam, . _ -)" });
-      return;
-    }
-    if (password.length < 8) {
-      res.status(400).json({ error: "weak_password", detail: "Parola en az 8 karakter olmalı" });
-      return;
-    }
-  }
 
   try {
     const meters = parseMeters();
@@ -1441,8 +1439,8 @@ app.post("/customers", requireAdmin, async (req, res) => {
       phone: phoneRaw,
       email: typeof body.email === "string" ? body.email.trim() || null : null,
       notes: typeof body.notes === "string" ? body.notes.trim() || null : null,
-      username: panelEnabled ? username : "",
-      passwordHash: panelEnabled ? hashPassword(password) : "",
+      username,
+      passwordHash: hashPassword(password),
       integrationMode,
       panelEnabled,
       meters
