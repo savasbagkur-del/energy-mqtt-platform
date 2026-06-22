@@ -55,7 +55,9 @@ export const listCustomersOverview = async (
            AND d.registry_status <> 'quarantined'
            AND EXISTS (
              SELECT 1 FROM devices q
-             WHERE q.registry_status = 'quarantined' AND q.sn = d.sn
+             WHERE q.customer_id IS NULL
+               AND q.registry_status IN ('quarantined', 'auto')
+               AND q.sn = d.sn
            )
        ) AS linkable_quarantine_count
      FROM customers c
@@ -110,7 +112,9 @@ export const getCustomerDetailById = async (
            AND d.registry_status <> 'quarantined'
            AND EXISTS (
              SELECT 1 FROM devices q
-             WHERE q.registry_status = 'quarantined' AND q.sn = d.sn
+             WHERE q.customer_id IS NULL
+               AND q.registry_status IN ('quarantined', 'auto')
+               AND q.sn = d.sn
            )
        ) AS linkable_quarantine_count
      FROM customers c

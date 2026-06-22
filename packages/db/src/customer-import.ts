@@ -221,6 +221,17 @@ const toMatchInfo = (row: { sn: string; model?: string | null; last_seen_at?: st
   matchType
 });
 
+/** Unassigned devices seen in the field (MQTT) that can be linked to a customer meter. */
+const LINKABLE_FIELD_DEVICE_SQL = `d.customer_id IS NULL AND d.registry_status IN ('quarantined', 'auto')`;
+
+export const isLinkableFieldDevice = (row: {
+  registry_status?: string | null;
+  customer_id?: string | null;
+} | null | undefined): boolean =>
+  !!row &&
+  !row.customer_id &&
+  (row.registry_status === "quarantined" || row.registry_status === "auto");
+
 export const findQuarantineMatchesForSn = async (
   pool: Pool,
   sn: string
@@ -238,11 +249,11 @@ export const findQuarantineMatchesForSn = async (
     return { best: null, options };
   };
 
-  // 1) Exact quarantined SN (no row cap — one SN = one row)
+  // 1) Exact linkable field SN (no row cap — one SN = one row)
   const exactQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
     `SELECT d.sn, d.model, d.last_seen_at
      FROM devices d
-     WHERE d.registry_status = 'quarantined' AND d.sn = $1`,
+     WHERE ${LINKABLE_FIELD_DEVICE_SQL} AND d.sn = $1`,
     [trimmed]
   );
   if (exactQ.rows[0]) {
@@ -256,7 +267,7 @@ export const findQuarantineMatchesForSn = async (
     const digitQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
       `SELECT d.sn, d.model, d.last_seen_at
        FROM devices d
-       WHERE d.registry_status = 'quarantined'
+       WHERE ${LINKABLE_FIELD_DEVICE_SQL}
          AND regexp_replace(d.sn, '[^0-9]', '', 'g') = $1
        ORDER BY (d.sn = $2) DESC, d.last_seen_at DESC NULLS LAST`,
       [digits, trimmed]
@@ -274,7 +285,7 @@ export const findQuarantineMatchesForSn = async (
   const res = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
     `SELECT d.sn, d.model, d.last_seen_at
      FROM devices d
-     WHERE d.registry_status = 'quarantined' AND d.sn LIKE $1
+     WHERE ${LINKABLE_FIELD_DEVICE_SQL} AND d.sn LIKE $1
      ORDER BY
        CASE WHEN d.sn = $2 THEN 0 ELSE 1 END,
        d.last_seen_at DESC NULLS LAST`,
@@ -347,7 +358,7 @@ export const applyCustomerImport = async (
 
         if (m.linkQuarantine) {
           const ex = await getDeviceRegistry(pool, registerSn);
-          if (ex?.registry_status === "quarantined") quarantineLinked += 1;
+          if (isLinkableFieldDevice(ex)) quarantineLinked += 1;
         }
 
         metersInput.push({
@@ -438,8 +449,8 @@ export const linkCustomerQuarantineMeters = async (
         continue;
       }
       const q = await getDeviceRegistry(pool, link.quarantineSn);
-      if (!q || q.registry_status !== "quarantined") {
-        failed.push({ sn: link.quarantineSn, error: "not_quarantined" });
+      if (!isLinkableFieldDevice(q)) {
+        failed.push({ sn: link.quarantineSn, error: "not_linkable" });
         continue;
       }
       await registerDevice(pool, {
