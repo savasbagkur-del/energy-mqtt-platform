@@ -1695,7 +1695,7 @@
         <div><h1>Müşteriler</h1><div class="sub">${nf(total)} müşteri · ${nf(panelCount)} panel · ${nf(apiCount)} API entegrasyonu</div></div>
         <div class="head-actions">
           ${isAdmin() ? `<button class="btn" id="cuTemplate"><svg viewBox="0 0 24 24" class="ic"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>Excel şablonu</button>
-          <button class="btn" id="cuImport"><svg viewBox="0 0 24 24" class="ic"><path d="M12 15V3m0 0 4 4m-4-4-4 4M5 21h14"/></svg>Toplu yükle</button>` : ""}
+          <button class="btn" id="cuImport"><svg viewBox="0 0 24 24" class="ic"><path d="M12 15V3m0 0 4 4m-4-4-4 4M5 21h14"/></svg>Müşteri formu yükle</button>` : ""}
           <button class="btn primary" id="cuNew"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Yeni müşteri</button>
         </div>
       </div>
@@ -1854,7 +1854,7 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(a.href);
-      toast("Excel şablonu indirildi", "Doldurup Toplu yükle ile geri yükleyin", "success");
+      toast("Excel şablonu indirildi", "Doldurup Müşteri formu yükle ile geri yükleyin", "success");
     } catch (e) { toast("Hata", e.message, "error"); }
   }
 
@@ -1876,88 +1876,117 @@
 
   function openCustomerImportModal() {
     modalMount.innerHTML = `
-      <div class="modal-backdrop"><div class="modal xl">
-        <div class="modal-head"><h3>Toplu müşteri yükleme</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
-        <p class="muted">Tek sayfalık <strong>Kayıt Formu</strong>: üstte bir müşteri bilgileri, altta sayaç tablosu. Her yüklemede tek müşteri kaydedilir.</p>
-        <div class="panel-inset import-help">
-          <strong>Alanlar:</strong> Müşteri Adı · Telefon · Bağlantı Tipi (panel/api) · Giriş kullanıcı adı · E-posta · Parola · sayaç satırları (SN, daire, usage: prepaid/Analiz, not).
-        </div>
-        <div class="form-grid two" style="margin-bottom:12px">
-          <label>Dosya<input type="file" id="ciFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>
-          <button class="btn sm" id="ciTpl" style="align-self:end">Şablonu indir</button>
-        </div>
-        <textarea id="ciText" rows="6" style="width:100%" placeholder="Alternatif: CSV metnini buraya yapıştırın…"></textarea>
-        <div id="ciPreview"></div>
-        <div class="modal-actions"><button class="btn" id="ciCancel">Vazgeç</button><button class="btn" id="ciPreviewBtn">Önizle</button><button class="btn primary" id="ciConfirm" hidden>Onayla ve yükle</button></div>
+      <div class="modal-backdrop"><div class="modal xl import-form-modal">
+        <div class="modal-head"><h3>Müşteri formu yükle</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
+        <p class="muted import-form-lead">Doldurulmuş <strong>Kayıt Formu</strong> (.xlsx) dosyasını seçin. Her yüklemede tek müşteri kaydedilir.</p>
+        <label class="form-upload-zone" id="ciDrop" tabindex="0">
+          <input type="file" id="ciFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+          <span class="form-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 15V3m0 0 4 4m-4-4-4 4M5 21h14"/></svg></span>
+          <span class="form-upload-title">Excel formu seç</span>
+          <span class="form-upload-name" id="ciFileName">Kayıt Formu (.xlsx)</span>
+        </label>
+        <div id="ciPreview" class="import-form-body"></div>
+        <div class="modal-actions"><button class="btn" id="ciCancel">Vazgeç</button><button class="btn primary" id="ciConfirm" hidden>Onayla ve yükle</button></div>
       </div></div>`;
     let previewData = null;
+    let pendingXlsxB64 = null;
     const previewEl = $("#ciPreview");
     const confirmBtn = $("#ciConfirm");
+    const dropZone = $("#ciDrop");
+    const fileInput = $("#ciFile");
+    const fileNameEl = $("#ciFileName");
+
+    const renderPreview = (data) => {
+      previewData = data;
+      const rowErrs = (data.errors || []).map((e) => `<li>Satır ${e.rowNum}: ${esc(e.message)}</li>`).join("");
+      const c = (data.customers || [])[0];
+      if (!c) {
+        previewEl.innerHTML = `${rowErrs ? `<div class="panel-inset bad-soft"><ul class="plain">${rowErrs}</ul></div>` : ""}<p class="empty">Formda müşteri bilgisi bulunamadı.</p>`;
+        confirmBtn.hidden = true;
+        return;
+      }
+      const bad = (c.errors || []).length;
+      const integLabel = c.integrationMode === "api" ? "3. parti yazılım (API)" : "Yerel panel";
+      const fld = (lbl, val, mono) => `<div class="import-field"><span class="import-lbl">${esc(lbl)}</span><span class="import-val${mono ? " mono" : ""}">${val}</span></div>`;
+      const meterRows = (c.meters || []).map((m, mi) => {
+        const q = m.quarantineMatch;
+        const qOpts = (m.quarantineOptions || []).length;
+        const qBadge = q
+          ? `<span class="pill warn sm">Karantina: ${esc(q.sn)}</span>`
+          : qOpts > 0
+            ? `<span class="pill off sm">${qOpts} aday</span>`
+            : `<span class="muted">eşleşme yok</span>`;
+        const canLink = !!q;
+        return `<tr>
+          <td class="mono">${esc(m.sn)}</td>
+          <td>${esc(m.unitNo || "—")}</td>
+          <td>${esc(METER_USAGE_LABEL[m.meterUsage] || m.meterUsage)}</td>
+          <td>${qBadge}</td>
+          <td>${canLink ? `<label class="check sm"><input type="checkbox" class="ci-link" data-mi="${mi}" checked /> Eşleştir</label>` : "—"}</td>
+        </tr>`;
+      }).join("");
+      previewEl.innerHTML = `
+        ${rowErrs ? `<div class="panel-inset bad-soft"><ul class="plain">${rowErrs}</ul></div>` : ""}
+        <div class="import-form-sheet">
+          <div class="import-form-section">
+            <div class="import-section-banner">Müşteri bilgileri${bad ? `<span class="pill bad sm">${bad} hata</span>` : `<span class="pill on sm">${(c.meters || []).length} sayaç</span>`}</div>
+            <div class="import-fields-grid">
+              ${fld("Müşteri Adı", esc(c.name))}
+              ${fld("Telefon", esc(c.phone), true)}
+              ${fld("Bağlantı Tipi", esc(integLabel))}
+              ${fld("Giriş kullanıcı adı", c.integrationMode === "panel" ? esc(c.username || "—") : "—", true)}
+              ${fld("E-posta", esc(c.email || "—"))}
+              ${fld("Parola", c.integrationMode === "panel" && c.hasPassword ? "••••••••" : "—")}
+              ${fld("Müşteri Notu", esc(c.notes || "—"))}
+            </div>
+            ${bad ? `<div class="panel-inset bad-soft import-block-err">${c.errors.map((x) => esc(x)).join(" · ")}</div>` : ""}
+          </div>
+          <div class="import-form-section">
+            <div class="import-section-banner">Sayaçlar</div>
+            ${meterRows
+              ? `<div class="table-wrap"><table class="data sm import-meter-table"><thead><tr><th>Seri no</th><th>Daire/Dükkan</th><th>Usage</th><th>Karantina</th><th></th></tr></thead><tbody>${meterRows}</tbody></table></div>`
+              : `<p class="empty import-meter-empty">Sayaç satırı yok.</p>`}
+          </div>
+        </div>`;
+      confirmBtn.hidden = !!bad;
+    };
+
+    const runPreview = async () => {
+      if (!pendingXlsxB64) return;
+      previewEl.innerHTML = `<div class="loading">Form okunuyor…</div>`;
+      confirmBtn.hidden = true;
+      try {
+        const data = await api("POST", "/customers/import/preview", { format: "xlsx", data: pendingXlsxB64 });
+        renderPreview(data);
+      } catch (e) {
+        previewEl.innerHTML = `<div class="panel-inset bad-soft">${esc(e.message)}</div>`;
+        confirmBtn.hidden = true;
+      }
+    };
+
     $("#ciClose").addEventListener("click", closeModal);
     $("#ciCancel").addEventListener("click", closeModal);
-    $("#ciTpl").addEventListener("click", downloadCustomerImportTemplate);
-    let pendingXlsxB64 = null;
-    $("#ciFile").addEventListener("change", async (e) => {
+    dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+    });
+    fileInput.addEventListener("change", async (e) => {
       const f = e.target.files[0];
       if (!f) return;
       const name = (f.name || "").toLowerCase();
-      if (name.endsWith(".xlsx")) {
-        pendingXlsxB64 = await fileToBase64(f);
-        $("#ciText").value = "";
-        toast("Dosya seçildi", f.name, "success");
-      } else {
-        pendingXlsxB64 = null;
-        $("#ciText").value = await f.text();
+      if (!name.endsWith(".xlsx")) {
+        toast("Geçersiz dosya", "Yalnızca .xlsx Kayıt Formu yükleyin", "warn");
+        fileInput.value = "";
+        return;
       }
-    });
-    const renderPreview = (data) => {
-      previewData = data;
-      const errs = (data.errors || []).map((e) => `<li>Satır ${e.rowNum}: ${esc(e.message)}</li>`).join("");
-      const custHtml = (data.customers || []).map((c, ci) => {
-        const bad = (c.errors || []).length;
-        const meterRows = (c.meters || []).map((m, mi) => {
-          const q = m.quarantineMatch;
-          const qOpts = (m.quarantineOptions || []).length;
-          const qBadge = q
-            ? `<span class="pill warn sm">Karantina: ${esc(q.sn)}</span>`
-            : qOpts > 0
-              ? `<span class="pill off sm">${qOpts} aday</span>`
-              : `<span class="muted">eşleşme yok</span>`;
-          const canLink = !!q;
-          return `<tr>
-            <td class="mono">${esc(m.sn)}</td>
-            <td>${esc(m.unitNo || "—")}</td>
-            <td>${esc(METER_USAGE_LABEL[m.meterUsage] || m.meterUsage)}</td>
-            <td>${qBadge}</td>
-            <td>${canLink ? `<label class="check sm"><input type="checkbox" class="ci-link" data-ci="${ci}" data-mi="${mi}" checked /> Eşleştir</label>` : "—"}</td>
-          </tr>`;
-        }).join("");
-        return `<div class="import-cust-block">
-          <div class="import-cust-head"><b>${esc(c.name)}</b> · ${esc(c.phone)} · ${c.integrationMode === "api" ? "3. parti API" : "Yerel panel"}
-            ${bad ? `<span class="pill bad sm">${bad} hata</span>` : `<span class="pill on sm">${(c.meters || []).length} sayaç</span>`}</div>
-          ${bad ? `<div class="muted">${c.errors.map((x) => esc(x)).join(" · ")}</div>` : ""}
-          ${meterRows ? `<div class="table-wrap"><table class="data sm"><thead><tr><th>Seri no</th><th>Daire/Dükkan</th><th>Usage</th><th>Karantina</th><th></th></tr></thead><tbody>${meterRows}</tbody></table></div>` : ""}
-        </div>`;
-      }).join("");
-      previewEl.innerHTML = `
-        ${errs ? `<div class="panel-inset bad-soft"><ul class="plain">${errs}</ul></div>` : ""}
-        <div class="import-preview">${custHtml || `<p class="empty">Önizlenecek kayıt yok</p>`}</div>`;
-      confirmBtn.hidden = !(data.customers || []).some((c) => !(c.errors || []).length);
-    };
-    $("#ciPreviewBtn").addEventListener("click", async () => {
-      const text = ($("#ciText").value || "").trim();
-      if (!pendingXlsxB64 && !text) { toast("Boş", "Excel dosyası seçin veya CSV yapıştırın", "warn"); return; }
-      try {
-        const data = pendingXlsxB64
-          ? await api("POST", "/customers/import/preview", { format: "xlsx", data: pendingXlsxB64 })
-          : await api("POST", "/customers/import/preview", text, { asText: true });
-        renderPreview(data);
-        toast("Önizleme hazır", `${(data.customers || []).length} müşteri · ${data.totalRows} satır`, "success");
-      } catch (e) { toast("Önizleme hatası", e.message, "error"); }
+      pendingXlsxB64 = await fileToBase64(f);
+      fileNameEl.textContent = f.name;
+      dropZone.classList.add("has-file");
+      await runPreview();
     });
     confirmBtn.addEventListener("click", async () => {
       if (!previewData) return;
-      const customers = (previewData.customers || []).filter((c) => !(c.errors || []).length).map((c, ci) => ({
+      const customers = (previewData.customers || []).filter((c) => !(c.errors || []).length).map((c) => ({
         name: c.name,
         phone: c.phone,
         email: c.email,
@@ -1966,7 +1995,7 @@
         username: c.username,
         password: c.password,
         meters: (c.meters || []).map((m, mi) => {
-          const linkEl = $(`.ci-link[data-ci="${ci}"][data-mi="${mi}"]`, previewEl);
+          const linkEl = $(`.ci-link[data-mi="${mi}"]`, previewEl);
           const linkQuarantine = !!(linkEl && linkEl.checked && m.quarantineMatch);
           return {
             sn: m.sn,

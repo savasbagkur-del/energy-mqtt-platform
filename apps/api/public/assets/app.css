@@ -589,6 +589,37 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .sn-pick:hover { background: var(--panel-2); }
 .sn-pick-act { font-size: 11.5px; font-weight: 700; color: var(--brand-text); background: var(--brand-soft); padding: 3px 9px; border-radius: 999px; flex: none; }
 .import-help { font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+.import-form-lead { margin: 0 0 14px; }
+.form-upload-zone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding: 22px 18px; margin-bottom: 16px; border: 2px dashed var(--line); border-radius: 14px;
+  background: var(--panel-2); cursor: pointer; transition: border-color .15s, background .15s;
+}
+.form-upload-zone:hover, .form-upload-zone:focus-visible { border-color: var(--brand); background: var(--brand-soft); outline: none; }
+.form-upload-zone.has-file { border-style: solid; border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); }
+.form-upload-icon svg { width: 28px; height: 28px; fill: none; stroke: var(--brand-text); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.form-upload-title { font-size: 14px; font-weight: 700; color: var(--txt); }
+.form-upload-name { font-size: 12.5px; color: var(--muted); }
+.import-form-body { min-height: 48px; }
+.import-form-sheet { display: flex; flex-direction: column; gap: 14px; max-height: 52vh; overflow: auto; }
+.import-form-section { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--panel); }
+.import-section-banner {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: #fff; background: linear-gradient(135deg, #1f4e79, #2f5496);
+}
+.import-fields-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0;
+  border-top: 1px solid var(--line);
+}
+.import-field { display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.import-field:last-child { border-bottom: none; }
+.import-fields-grid .import-field:nth-child(odd):last-child { grid-column: 1 / -1; }
+.import-lbl { font-size: 12px; font-weight: 700; color: var(--muted); text-align: right; }
+.import-val { font-size: 13px; color: var(--txt); word-break: break-word; }
+.import-block-err { margin: 10px 14px 12px; }
+.import-meter-table { margin: 0; }
+.import-meter-empty { margin: 0; padding: 16px 14px; }
 .import-preview { display: flex; flex-direction: column; gap: 14px; max-height: 42vh; overflow: auto; margin-top: 14px; }
 .import-cust-block { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel-2); }
 .import-cust-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
