@@ -1846,7 +1846,7 @@
 
   async function downloadCustomerImportTemplate() {
     try {
-      const blob = await api("GET", "/customers/import/template", undefined, { blob: true });
+      const blob = await api("GET", "/customers/import/template?v=3", undefined, { blob: true });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = "musteri-sayac-sablonu.xlsx";
@@ -1878,9 +1878,9 @@
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal xl">
         <div class="modal-head"><h3>Toplu müşteri yükleme</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
-        <p class="muted">Profesyonel <strong>Kayıt Formu</strong>: üstte müşteri bilgileri, altta sayaç tablosu. Birden fazla müşteri için ikinci blok veya <em>Toplu Kayıt</em> sekmesi.</p>
+        <p class="muted">Tek sayfalık <strong>Kayıt Formu</strong>: üstte müşteri bilgileri, altta sayaç tablosu. İkinci müşteri için alttaki ikinci bloğu doldurun.</p>
         <div class="panel-inset import-help">
-          <strong>Sütunlar:</strong> Müşteri Adı · Telefon · Giriş kullanıcı adı · Bağlantı Tipi (panel/api) · E-posta · Parola · Sayaç Seri No · Daire/Dükkan · Usage · Not — ayrıntılar şablondaki <em>Açıklama</em> sekmesinde.
+          <strong>Alanlar:</strong> Müşteri Adı · Telefon · Bağlantı Tipi (panel/api) · Giriş kullanıcı adı · E-posta · Parola · sayaç satırları (SN, daire, usage, not).
         </div>
         <div class="form-grid two" style="margin-bottom:12px">
           <label>Dosya<input type="file" id="ciFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>

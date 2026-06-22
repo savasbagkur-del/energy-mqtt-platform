@@ -1,11 +1,13 @@
 import ExcelJS from "exceljs";
 
 const FORM_SHEET = "Kayıt Formu";
-const BULK_SHEET = "Toplu Kayıt";
 
 const METER_ROWS = 55;
 const BLOCK_GAP = 4;
 const BLOCK_BODY = 8 + METER_ROWS;
+
+/** Eight columns in four equal pairs — matches müşteri bilgileri grid (A–B | C–D | E–F | G–H). */
+const FORM_COL_WIDTHS = [14, 14, 14, 14, 14, 14, 14, 14];
 
 export const IMPORT_COLUMNS: Array<{
   key: string;
@@ -80,12 +82,12 @@ const CUSTOMER_OFFSET = {
   meterDataStart: { r: 9, c: 1 }
 };
 
-const METER_COL = { no: 1, sn: 2, unit: 5, usage: 7, note: 8 };
+const METER_COL = { no: 1, sn: 3, unit: 5, usage: 7, note: 8 };
 
-/** Meter table spans A–H: # | SN (B–D) | Daire (E–F) | Usage | Not */
+/** Meter table uses the same 2-column blocks as customer fields (full A–H width). */
 const METER_SPANS: Array<{ key: keyof typeof METER_COL; label: string; c1: number; c2: number; text?: boolean }> = [
-  { key: "no", label: "#", c1: 1, c2: 1 },
-  { key: "sn", label: "Sayaç Seri No", c1: 2, c2: 4, text: true },
+  { key: "no", label: "#", c1: 1, c2: 2 },
+  { key: "sn", label: "Sayaç Seri No", c1: 3, c2: 4, text: true },
   { key: "unit", label: "Daire / Dükkan", c1: 5, c2: 6 },
   { key: "usage", label: "Usage", c1: 7, c2: 7 },
   { key: "note", label: "Sayaç Notu", c1: 8, c2: 8 }
@@ -147,12 +149,10 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
   styleLabel(ws.getCell(R + 3, 1), "Telefon *");
   ws.mergeCells(R + 3, 1, R + 3, 2);
   mergeStyle(ws, R + 3, 3, R + 3, 4, true);
-  styleLabel(ws.getCell(R + 3, 5), "Bağlantı Tipi *");
+  styleLabel(ws.getCell(R + 3, 5), "Bağlantı Tipi *\n(panel / api)");
   ws.mergeCells(R + 3, 5, R + 3, 6);
+  ws.getCell(R + 3, 5).alignment = { vertical: "middle", horizontal: "right", wrapText: true };
   const bagCell = mergeStyle(ws, R + 3, 7, R + 3, 8, false);
-  bagCell.value = BAGLANTI_HINT;
-  bagCell.font = { name: "Calibri", size: 10, italic: true, color: { argb: "FF94A3B8" } };
-  bagCell.alignment = { vertical: "middle", horizontal: "left", indent: 1 };
   bagCell.dataValidation = {
     type: "list",
     allowBlank: true,
@@ -179,7 +179,7 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
   ws.mergeCells(R + 5, 5, R + 5, 6);
   mergeStyle(ws, R + 5, 7, R + 5, 8, false);
 
-  [R + 2, R + 3, R + 4, R + 5].forEach((r) => { ws.getRow(r).height = 24; });
+  [R + 2, R + 3, R + 4, R + 5].forEach((r) => { ws.getRow(r).height = r === R + 3 ? 30 : 24; });
 
   ws.mergeCells(R + 7, 1, R + 7, 8);
   const mBanner = ws.getCell(R + 7, 1);
@@ -198,16 +198,20 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
     cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.tableHeadFg } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.tableHeadBg } };
     cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-    cell.border = borderAll();
+    cell.border = borderAll("medium");
   });
+  for (let c = 1; c <= 8; c += 1) {
+    ws.getCell(mh, c).border = borderAll("medium");
+  }
   ws.getRow(mh).height = 26;
 
   for (let i = 0; i < METER_ROWS; i += 1) {
     const r = R + 9 + i;
-    const row = ws.getRow(r);
-    row.height = 21;
+    ws.getRow(r).height = 21;
     const zebra = i % 2 === 0 ? "FFFFFFFF" : C.zebra;
-    const noCell = ws.getCell(r, METER_COL.no);
+
+    ws.mergeCells(r, 1, r, 2);
+    const noCell = ws.getCell(r, 1);
     noCell.value = i + 1;
     noCell.font = { name: "Calibri", size: 10, color: { argb: "FF64748B" } };
     noCell.alignment = { vertical: "middle", horizontal: "center" };
@@ -219,6 +223,7 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
       const cell = ws.getCell(r, c1);
       styleValue(cell, Boolean(text));
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: zebra } };
+      cell.border = borderAll();
       if (key === "usage") {
         cell.dataValidation = {
           type: "list",
@@ -230,6 +235,10 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
         };
       }
     });
+    for (let c = 1; c <= 8; c += 1) {
+      const cell = ws.getCell(r, c);
+      if (!cell.border?.right?.style) cell.border = borderAll();
+    }
   }
 };
 
@@ -267,46 +276,9 @@ const writeDocumentHeader = (ws: ExcelJS.Worksheet) => {
   ws.getRow(2).height = 28;
 };
 
-const buildBulkSheet = (ws: ExcelJS.Worksheet) => {
-  ws.getColumn(1).width = 26;
-  ws.getColumn(2).width = 16;
-  ws.getColumn(3).width = 28;
-  ws.getColumn(4).width = 14;
-  ws.getColumn(5).width = 18;
-  ws.getColumn(6).width = 16;
-  ws.getColumn(7).width = 22;
-  ws.getColumn(8).width = 16;
-  ws.getColumn(9).width = 12;
-  ws.getColumn(10).width = 32;
-  ws.getColumn(2).numFmt = "@";
-  ws.getColumn(7).numFmt = "@";
-
-  ws.mergeCells(1, 1, 1, 10);
-  const t = ws.getCell(1, 1);
-  t.value = "Toplu Kayıt — birden fazla müşteri (her sayaç = 1 satır)";
-  t.font = { name: "Calibri", size: 12, bold: true, color: { argb: C.sectionFg } };
-  t.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.sectionBg } };
-
-  const headers = [
-    "Müşteri Adı *", "Telefon *", "Giriş kullanıcı adı", "Bağlantı Tipi *", "E-posta", "Parola",
-    "Sayaç Seri No", "Daire / Dükkan", "Usage", "Not"
-  ];
-  headers.forEach((h, i) => {
-    const cell = ws.getCell(2, i + 1);
-    cell.value = h;
-    cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: C.tableHeadFg } };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.tableHeadBg } };
-    cell.border = borderAll();
-  });
-
-  for (let r = 3; r <= 200; r += 1) {
-    for (let c = 1; c <= 10; c += 1) {
-      const cell = ws.getCell(r, c);
-      cell.border = borderAll();
-      cell.font = { name: "Calibri", size: 11 };
-      if (c === 2 || c === 7) fmtText(cell);
-    }
-  }
+const applyFormLayout = (ws: ExcelJS.Worksheet) => {
+  FORM_COL_WIDTHS.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  ws.pageSetup = { orientation: "portrait", printArea: "A1:H250" };
 };
 
 /** Quotation-style form: customer details on top, meter table below. */
@@ -316,12 +288,10 @@ export const buildCustomerImportTemplate = async (): Promise<Buffer> => {
   wb.created = new Date();
 
   const ws = wb.addWorksheet(FORM_SHEET, {
-    views: [{ state: "frozen", ySplit: 4, activeCell: "C10" }],
-    pageSetup: { orientation: "portrait", fitToPage: true, fitToWidth: 1 }
+    views: [{ state: "frozen", ySplit: 4, activeCell: "C10" }]
   });
 
-  [6, 18, 18, 18, 14, 14, 10, 20].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
-
+  applyFormLayout(ws);
   writeDocumentHeader(ws);
   writeCustomerBlock(ws, 5, 1);
   writeCustomerBlock(ws, 5 + BLOCK_BODY + BLOCK_GAP, 2);
@@ -329,36 +299,9 @@ export const buildCustomerImportTemplate = async (): Promise<Buffer> => {
   ws.mergeCells(5 + BLOCK_BODY * 2 + BLOCK_GAP + 2, 1, 5 + BLOCK_BODY * 2 + BLOCK_GAP + 2, 8);
   const hint = ws.getCell(5 + BLOCK_BODY * 2 + BLOCK_GAP + 2, 1);
   hint.value =
-    "İpucu: İkinci müşteri için yukarıdaki ikinci blok kullanılır. Daha fazla müşteri için bloğu kopyalayın veya “Toplu Kayıt” sekmesini kullanın.";
+    "İpucu: İkinci müşteri için yukarıdaki ikinci bloğu kullanın. Daha fazla müşteri için bloğu kopyalayın.";
   hint.font = { name: "Calibri", size: 10, italic: true, color: { argb: "FF64748B" } };
   hint.alignment = { wrapText: true, vertical: "middle" };
-
-  const bulk = wb.addWorksheet(BULK_SHEET, { properties: { tabColor: { argb: "FF64748B" } } });
-  buildBulkSheet(bulk);
-
-  const help = wb.addWorksheet("Açıklama", { properties: { tabColor: { argb: "FF2F5496" } } });
-  help.getColumn(1).width = 24;
-  help.getColumn(2).width = 70;
-  help.mergeCells("A1:B1");
-  help.getCell("A1").value = "Kullanım kılavuzu";
-  help.getCell("A1").font = { name: "Calibri", size: 14, bold: true, color: { argb: C.titleFg } };
-  help.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.titleBg } };
-  const lines = [
-    ["Kayıt Formu", "Tek müşteri için üst bölüm müşteri bilgileri, alt tablo sayaçlar. İki müşteri bloğu vardır."],
-    ["Toplu Kayıt", "Çok müşteri / çok sayaç için klasik satır listesi (her sayaç ayrı satır)."],
-    ["Bağlantı Tipi", "panel = yerel panel · api = 3. parti yazılım"],
-    ["Giriş kullanıcı adı", "panel modunda müşterinin panele giriş yapacağı kullanıcı adı (Parola ile birlikte zorunlu)."],
-    ["Usage", "prepaid (varsayılan) veya postpaid"],
-    ["Telefon / SN", "Metin olarak yazın (0555…, 24042809890001)."],
-    ["Yükleme", "Panel → Müşteriler → Toplu yükle → .xlsx dosyasını seçin."]
-  ];
-  lines.forEach(([t, d], i) => {
-    help.getRow(i + 3).getCell(1).value = t;
-    help.getRow(i + 3).getCell(1).font = { bold: true };
-    help.getRow(i + 3).getCell(2).value = d;
-    help.getRow(i + 3).getCell(2).alignment = { wrapText: true };
-    help.getRow(i + 3).height = 26;
-  });
 
   return Buffer.from(await wb.xlsx.writeBuffer());
 };
@@ -479,18 +422,18 @@ const parseBulkSheet = (ws: ExcelJS.Worksheet): Array<Record<string, string>> =>
   return out;
 };
 
-/** Parse uploaded .xlsx — form layout + optional bulk sheet. */
+/** Parse uploaded .xlsx — Kayıt Formu layout (legacy Toplu Kayıt sheet still accepted). */
 export const parseCustomerImportXlsx = async (buffer: Buffer): Promise<Array<Record<string, string>>> => {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(new Uint8Array(buffer) as unknown as ExcelJS.Buffer);
 
   const formWs = wb.getWorksheet(FORM_SHEET);
-  const bulkWs = wb.getWorksheet(BULK_SHEET);
+  const bulkWs = wb.getWorksheet("Toplu Kayıt");
 
   const formRows = formWs ? parseFormSheet(formWs) : [];
-  const bulkRows = bulkWs ? parseBulkSheet(bulkWs) : [];
-
   if (formRows.length) return formRows;
+
+  const bulkRows = bulkWs ? parseBulkSheet(bulkWs) : [];
   if (bulkRows.length) return bulkRows;
 
   const fallback = wb.worksheets[0];

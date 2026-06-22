@@ -1476,6 +1476,7 @@ app.get("/customers/import/template", requireAdmin, async (req, res) => {
       return;
     }
     const buf = await buildCustomerImportTemplate();
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
