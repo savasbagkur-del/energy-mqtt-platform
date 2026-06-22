@@ -76,31 +76,20 @@
   async function fetchQuarantineMatches(query) {
     const q = String(query || "").trim();
     if (q.length < 2) return [];
-    const fetchStatus = (status, term) =>
-      api("GET", `/registry/devices?status=${status}&q=${encodeURIComponent(term)}&limit=80`);
-    const pick = (lists) => {
+    const fetchUnassigned = (term) =>
+      api("GET", `/registry/devices?unassigned=1&q=${encodeURIComponent(term)}&limit=80`);
+    const pick = (items) => {
       const seen = new Set();
-      return lists.flat().filter((d) => {
+      return (items || []).filter((d) => {
         if (!d.sn || seen.has(d.sn) || d.customer_id) return false;
         if (!snMatchesQuarantineQuery(d.sn, q)) return false;
         seen.add(d.sn);
         return true;
       });
     };
-    const [resQ, resAuto, resReg] = await Promise.all([
-      fetchStatus("quarantined", q),
-      fetchStatus("auto", q),
-      fetchStatus("registered", q)
-    ]);
-    let items = pick([resQ.items || [], resAuto.items || [], resReg.items || []]);
+    let items = pick((await fetchUnassigned(q)).items);
     if (!items.length && q.length > 2) {
-      const tail = q.slice(-2);
-      const [resQ2, resAuto2, resReg2] = await Promise.all([
-        fetchStatus("quarantined", tail),
-        fetchStatus("auto", tail),
-        fetchStatus("registered", tail)
-      ]);
-      items = pick([resQ2.items || [], resAuto2.items || [], resReg2.items || []]);
+      items = pick((await fetchUnassigned(q.slice(-2))).items);
     }
     return items;
   }
@@ -113,9 +102,9 @@
     const placeholder = o.placeholder || "SN";
     return `<div class="sn-search-wrap">
       <input class="${esc(inputClass)}"${inputId}${value} placeholder="${esc(placeholder)}" autocomplete="off" />
-      <button type="button" class="btn sm icon m-search" title="Karantinada ara">${IC_SEARCH}</button>
+      <button type="button" class="btn sm icon m-search" title="Boşa cihaz ara">${IC_SEARCH}</button>
       <div class="sn-suggest" hidden>
-        <div class="sn-suggest-head">Karantinadaki eşleşmeler</div>
+        <div class="sn-suggest-head">Müşteriye atanmamış cihazlar</div>
         <div class="sn-suggest-list"></div>
       </div>
     </div>`;
@@ -133,15 +122,22 @@
     const renderList = (items) => {
       if (!list || !listBody) return;
       if (!items.length) {
-        listBody.innerHTML = `<div class="sn-suggest-empty muted">Eşleşen karantina cihazı yok</div>`;
+        listBody.innerHTML = `<div class="sn-suggest-empty muted">Eşleşen boşa cihaz yok</div>`;
         list.hidden = false;
         return;
       }
-      listBody.innerHTML = items.map((d) => `
+      listBody.innerHTML = items.map((d) => {
+        const online = d.last_seen_at
+          ? Date.now() - new Date(d.last_seen_at).getTime() < state.settings.onlineWindowSec * 1000
+          : false;
+        const seen = d.last_seen_at ? timeAgo(d.last_seen_at) : "henüz görülmedi";
+        const st = statusLabel(d.registry_status);
+        return `
         <button type="button" class="sn-pick" data-sn="${esc(d.sn)}">
-          <span><span class="mono">${esc(d.sn)}</span>${d.model ? `<span class="muted"> · ${esc(d.model)}</span>` : ""}${d.last_seen_at ? `<span class="muted"> · ${esc(timeAgo(d.last_seen_at))}</span>` : ""}</span>
+          <span><span class="mono">${esc(d.sn)}</span><span class="muted"> · ${esc(st)} · ${online ? "çevrimiçi" : "çevrimdışı"} · ${esc(seen)}</span>${d.model ? `<span class="muted"> · ${esc(d.model)}</span>` : ""}</span>
           <span class="sn-pick-act">Seç</span>
-        </button>`).join("");
+        </button>`;
+      }).join("");
       list.hidden = false;
       listBody.querySelectorAll(".sn-pick").forEach((b) => b.addEventListener("click", (e) => {
         e.preventDefault();
@@ -1927,11 +1923,17 @@
       const bad = (c.errors || []).length;
       const integLabel = c.integrationMode === "api" ? "3. parti yazılım (API)" : "Yerel panel";
       const fld = (lbl, val, mono) => `<div class="import-field"><span class="import-lbl">${esc(lbl)}</span><span class="import-val${mono ? " mono" : ""}">${val}</span></div>`;
+      const matchHint = (q) => {
+        const st = statusLabel(q.registry_status || "");
+        if (!q.last_seen_at) return `${st} · henüz görülmedi`;
+        const online = Date.now() - new Date(q.last_seen_at).getTime() < state.settings.onlineWindowSec * 1000;
+        return `${st} · ${online ? "çevrimiçi" : "çevrimdışı"}`;
+      };
       const meterRows = (c.meters || []).map((m, mi) => {
         const q = m.quarantineMatch;
         const qOpts = (m.quarantineOptions || []).length;
         const qBadge = q
-          ? `<span class="pill warn sm">Karantina: ${esc(q.sn)}</span>`
+          ? `<span class="pill warn sm">${esc(q.sn)}<span class="muted"> · ${esc(matchHint(q))}</span></span>`
           : qOpts > 0
             ? `<span class="pill off sm">${qOpts} aday</span>`
             : `<span class="muted">eşleşme yok</span>`;
@@ -1963,7 +1965,7 @@
           <div class="import-form-section">
             <div class="import-section-banner">Sayaçlar</div>
             ${meterRows
-              ? `<div class="table-wrap"><table class="data sm import-meter-table"><thead><tr><th>Seri no</th><th>Daire/Dükkan</th><th>Usage</th><th>Karantina</th><th></th></tr></thead><tbody>${meterRows}</tbody></table></div>`
+              ? `<div class="table-wrap"><table class="data sm import-meter-table"><thead><tr><th>Seri no</th><th>Daire/Dükkan</th><th>Usage</th><th>Cihaz eşleşmesi</th><th></th></tr></thead><tbody>${meterRows}</tbody></table></div>`
               : `<p class="empty import-meter-empty">Sayaç satırı yok.</p>`}
           </div>
         </div>`;
@@ -2031,7 +2033,7 @@
       try {
         const r = await api("POST", "/customers/import/confirm", { customers });
         const failMsg = (r.failed || []).length ? ` · ${r.failed.length} hata` : "";
-        toast("Yükleme tamam", `${r.customersCreated} müşteri · ${r.metersRegistered} sayaç · ${r.quarantineLinked} karantina eşleşmesi${failMsg}`, "success");
+        toast("Yükleme tamam", `${r.customersCreated} müşteri · ${r.metersRegistered} sayaç · ${r.quarantineLinked} cihaz eşleşmesi${failMsg}`, "success");
         closeModal();
         renderCustomers();
       } catch (e) { toast("Yükleme hatası", e.message, "error"); }
@@ -2051,7 +2053,7 @@
     }
     if (!items.length) {
       closeModal();
-      toast("Eşleşme yok", "Bağlantı bekleyen sayaç bulunamadı veya karantinada aday yok", "warn");
+      toast("Eşleşme yok", "Bağlantı bekleyen sayaç bulunamadı veya boşa cihaz adayı yok", "warn");
       return;
     }
     const rows = items.map((it, idx) => {
@@ -2064,14 +2066,14 @@
       return `<tr data-idx="${idx}">
         <td class="mono">${esc(it.expectedSn)}</td>
         <td>${esc(it.unitNo || "—")}</td>
-        <td>${hasMatch ? `<select class="ql-pick" data-idx="${idx}">${opts}</select>` : `<span class="muted">karantinada yok</span>`}</td>
+        <td>${hasMatch ? `<select class="ql-pick" data-idx="${idx}">${opts}</select>` : `<span class="muted">boşa cihaz yok</span>`}</td>
         <td>${hasMatch ? `<label class="check sm"><input type="checkbox" class="ql-use" data-idx="${idx}" ${it.quarantineMatch ? "checked" : ""} /> Eşleştir</label>` : ""}</td>
       </tr>`;
     }).join("");
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal lg">
         <div class="modal-head"><h3>Karantina eşleştir · ${esc(customerName)}</h3><button type="button" class="modal-close" id="qlClose" aria-label="Kapat">${IC_CLOSE}</button></div>
-        <p class="muted">Bağlantı bekleyen sayaçlar karantinadaki cihazlarla seri numarası (veya son hane) üzerinden eşleştirilir. Onayladıktan sonra sayaç müşteriye bağlanır.</p>
+        <p class="muted">Bağlantı bekleyen sayaçlar, müşteriye atanmamış kayıtlı cihazlarla (çevrimiçi veya çevrimdışı) seri numarası üzerinden eşleştirilir.</p>
         <div class="table-wrap"><table class="data">
           <thead><tr><th>Beklenen SN</th><th>Daire/Dükkan</th><th>Karantina adayı</th><th></th></tr></thead>
           <tbody>${rows}</tbody>

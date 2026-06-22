@@ -54,6 +54,7 @@ export interface QuarantineMatchInfo {
   sn: string;
   model: string | null;
   last_seen_at: string | null;
+  registry_status: string | null;
   matchType: "exact" | "suffix";
 }
 
@@ -214,14 +215,18 @@ export const parseCustomerImportRows = (
   return { groups: [...map.values()], errors };
 };
 
-const toMatchInfo = (row: { sn: string; model?: string | null; last_seen_at?: string | null }, matchType: "exact" | "suffix"): QuarantineMatchInfo => ({
+const toMatchInfo = (
+  row: { sn: string; model?: string | null; last_seen_at?: string | null; registry_status?: string | null },
+  matchType: "exact" | "suffix"
+): QuarantineMatchInfo => ({
   sn: row.sn,
   model: row.model ?? null,
   last_seen_at: row.last_seen_at ?? null,
+  registry_status: row.registry_status ?? null,
   matchType
 });
 
-/** Unassigned devices in the registry that can be linked to a customer meter. */
+/** Devices not yet assigned to a customer — any registry status, online or offline. */
 const LINKABLE_FIELD_DEVICE_SQL = `d.customer_id IS NULL`;
 
 export const isLinkableFieldDevice = (row: {
@@ -236,7 +241,7 @@ export const findQuarantineMatchesForSn = async (
   const trimmed = normalizeImportSn(sn);
   if (!trimmed) return { best: null, options: [] };
 
-  const pickBest = (rows: Array<{ sn: string; model: string | null; last_seen_at: string | null }>) => {
+  const pickBest = (rows: Array<{ sn: string; model: string | null; last_seen_at: string | null; registry_status: string | null }>) => {
     const options = rows.map((r) =>
       toMatchInfo(r, r.sn === trimmed || normalizeImportSn(r.sn) === trimmed ? "exact" : "suffix")
     );
@@ -247,8 +252,8 @@ export const findQuarantineMatchesForSn = async (
   };
 
   // 1) Exact linkable field SN (no row cap — one SN = one row)
-  const exactQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
-    `SELECT d.sn, d.model, d.last_seen_at
+  const exactQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null; registry_status: string | null }>(
+    `SELECT d.sn, d.model, d.last_seen_at, d.registry_status
      FROM devices d
      WHERE ${LINKABLE_FIELD_DEVICE_SQL} AND d.sn = $1`,
     [trimmed]
@@ -261,8 +266,8 @@ export const findQuarantineMatchesForSn = async (
   // 2) Digit-normalized exact (handles formatting differences)
   const digits = trimmed.replace(/\D/g, "");
   if (digits) {
-    const digitQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
-      `SELECT d.sn, d.model, d.last_seen_at
+    const digitQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null; registry_status: string | null }>(
+      `SELECT d.sn, d.model, d.last_seen_at, d.registry_status
        FROM devices d
        WHERE ${LINKABLE_FIELD_DEVICE_SQL}
          AND regexp_replace(d.sn, '[^0-9]', '', 'g') = $1
@@ -279,8 +284,8 @@ export const findQuarantineMatchesForSn = async (
   const tail = trimmed.slice(-tailLen);
   if (tail.length < 2) return { best: null, options: [] };
 
-  const res = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
-    `SELECT d.sn, d.model, d.last_seen_at
+  const res = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null; registry_status: string | null }>(
+    `SELECT d.sn, d.model, d.last_seen_at, d.registry_status
      FROM devices d
      WHERE ${LINKABLE_FIELD_DEVICE_SQL} AND d.sn LIKE $1
      ORDER BY

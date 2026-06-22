@@ -1724,12 +1724,13 @@ app.get("/api/v1/devices", async (req, res) => {
   }
 });
 
-// Detailed registry list with optional ?status= and ?q= filters.
+// Detailed registry list with optional ?status=, ?q= and ?unassigned=1 filters.
 app.get("/registry/devices", async (req, res) => {
   try {
     const filter: ListDevicesRegistryFilter = {
       status: typeof req.query.status === "string" ? req.query.status : null,
-      search: typeof req.query.q === "string" ? req.query.q : null
+      search: typeof req.query.q === "string" ? req.query.q : null,
+      unassignedOnly: req.query.unassigned === "1" || req.query.unassigned === "true"
     };
     if (typeof req.query.limit === "string") filter.limit = Number(req.query.limit);
     if (typeof req.query.offset === "string") filter.offset = Number(req.query.offset);

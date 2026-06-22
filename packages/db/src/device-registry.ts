@@ -218,6 +218,8 @@ export const getDeviceRegistry = async (pool: Pool, sn: string): Promise<DeviceR
 export interface ListDevicesRegistryFilter {
   status?: string | null;
   search?: string | null;
+  /** When true, only devices with no customer assignment (linkable to a customer). */
+  unassignedOnly?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -228,6 +230,9 @@ export const listDevicesRegistry = async (
 ): Promise<DeviceRegistryRow[]> => {
   const where: string[] = [];
   const params: unknown[] = [];
+  if (filter.unassignedOnly) {
+    where.push("d.customer_id IS NULL");
+  }
   if (filter.status) {
     params.push(filter.status);
     where.push(`d.registry_status = $${params.length}`);
@@ -235,7 +240,11 @@ export const listDevicesRegistry = async (
   if (filter.search) {
     params.push(`%${filter.search}%`);
     const i = params.length;
-    where.push(`(d.sn ILIKE $${i} OR d.label ILIKE $${i} OR d.subscriber_no ILIKE $${i} OR c.name ILIKE $${i})`);
+    if (filter.unassignedOnly) {
+      where.push(`(d.sn ILIKE $${i} OR d.label ILIKE $${i} OR d.subscriber_no ILIKE $${i})`);
+    } else {
+      where.push(`(d.sn ILIKE $${i} OR d.label ILIKE $${i} OR d.subscriber_no ILIKE $${i} OR c.name ILIKE $${i})`);
+    }
   }
   const limit = Math.min(Math.max(filter.limit ?? 200, 1), 1000);
   const offset = Math.max(filter.offset ?? 0, 0);

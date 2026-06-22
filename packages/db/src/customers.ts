@@ -25,7 +25,7 @@ export interface CustomerOverviewRow {
   activated_at: string | null;
   /** Meters assigned but never communicated (awaiting field connection). */
   pending_meter_count: number;
-  /** Pending meters with a quarantined SN match available to link. */
+  /** Pending meters with an unassigned registry SN match available to link. */
   linkable_quarantine_count: number;
 }
 
