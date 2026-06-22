@@ -729,6 +729,8 @@ table.data tfoot td.num { text-align: right; font-family: var(--mono); }
 .alarm-item .a-tag.sev-info { background: var(--info-soft); color: var(--info-text); }
 .alarm-item .a-reason { font-weight: 600; color: var(--txt-2); }
 .alarm-item .a-time { color: var(--muted); font-size: 12px; white-space: nowrap; flex: none; }
+.alarm-item .a-status { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+.alarm-item .a-status .a-tag { margin-right: 0; }
 .alarm-empty { display: flex; align-items: center; gap: 13px; padding: 22px 18px; }
 .alarm-empty .ae-ic { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; flex: none; background: var(--on-soft); color: var(--on-text); font-size: 20px; font-weight: 800; }
 .alarm-empty .ae-txt { display: flex; flex-direction: column; gap: 2px; }

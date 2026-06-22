@@ -730,27 +730,42 @@
       money: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 2v20M16 6.5C16 5 14.2 4 12 4S8 5 8 6.7s1.8 2.3 4 2.8 4 1.3 4 3-1.8 2.7-4 2.7-4-1-4-2.5"/></svg>`,
       offline: `<svg viewBox="0 0 24 24" class="ic"><path d="M18.4 5.6 5.6 18.4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/></svg>`
     };
-    // attention list (dedup by sn, severity-ordered; command alarms take precedence)
+    // Fault-focused attention list (dedup by sn): customer · meter no · fault status.
+    // açamadı/kapatamadı derive from the command-timeout alarm's desired direction
+    // (desired 1 = AÇIK, 0 = KAPALI); offline meters surface as "Kopuk".
+    const FAULT = {
+      open_fail:  { text: "Açamadı",    sev: "bad",  ic: "alarm" },
+      close_fail: { text: "Kapatamadı", sev: "bad",  ic: "alarm" },
+      cmd_fail:   { text: "Komut doğrulanamadı", sev: "bad", ic: "alarm" },
+      alarm:      { text: "Arıza",      sev: "bad",  ic: "alarm" },
+      offline:    { text: "Kopuk",      sev: "warn", ic: "offline" },
+      owing:      { text: "Borçlu",     sev: "info", ic: "money" }
+    };
     const att = new Map();
-    (cmdAlarms.items || []).forEach((a) => att.set(a.sn, {
-      d: { sn: a.sn, label: a.label, customer_name: a.customer_name, last_seen_at: a.raised_at },
-      sev: "bad",
-      reason: alarmTypeLabel(a.alarm_type)
-    }));
-    (alarms.items || []).forEach((d) => { if (!att.has(d.sn)) att.set(d.sn, { d, sev: "bad", reason: "Alarm bayrağı" }); });
-    (owing.items || []).forEach((d) => { if (!att.has(d.sn)) att.set(d.sn, { d, sev: "warn", reason: "Bakiye borçlu" }); });
-    (offline.items || []).forEach((d) => { if (!att.has(d.sn) && d.registry_status !== "quarantined") att.set(d.sn, { d, sev: "info", reason: "Çevrimdışı" }); });
-    const attArr = Array.from(att.values()).slice(0, 8);
-    const sevTag = { bad: "Alarm", warn: "Uyarı", info: "Bilgi" };
+    const putFault = (sn, info) => { if (!att.has(sn)) att.set(sn, info); };
+    (cmdAlarms.items || []).forEach((a) => {
+      let f = FAULT.cmd_fail;
+      if (a.alarm_type === "COMMAND_CONFIRMATION_TIMEOUT") {
+        const des = Number(a.fields && (a.fields.desired ?? a.fields.desiredSwitch));
+        if (des === 1) f = FAULT.open_fail;
+        else if (des === 0) f = FAULT.close_fail;
+      }
+      att.set(a.sn, { sn: a.sn, label: a.label, customer: a.customer_name, city: null, time: a.raised_at, text: f.text, sev: f.sev, ic: f.ic });
+    });
+    (alarms.items || []).forEach((d) => putFault(d.sn, { sn: d.sn, label: d.label, customer: d.customer_name, city: d.city, time: d.last_seen_at, text: FAULT.alarm.text, sev: FAULT.alarm.sev, ic: FAULT.alarm.ic }));
+    (offline.items || []).forEach((d) => { if (d.registry_status !== "quarantined") putFault(d.sn, { sn: d.sn, label: d.label, customer: d.customer_name, city: d.city, time: d.last_seen_at, text: FAULT.offline.text, sev: FAULT.offline.sev, ic: FAULT.offline.ic }); });
+    (owing.items || []).forEach((d) => putFault(d.sn, { sn: d.sn, label: d.label, customer: d.customer_name, city: d.city, time: d.last_seen_at, text: FAULT.owing.text, sev: FAULT.owing.sev, ic: FAULT.owing.ic }));
+    const sevRank = { bad: 0, warn: 1, info: 2 };
+    const attArr = Array.from(att.values()).sort((a, b) => sevRank[a.sev] - sevRank[b.sev]).slice(0, 8);
     const attHtml = attArr.length ? `<div class="alarm-list">${attArr.map((a) => `
-      <div class="alarm-item sev-${a.sev}" data-sn="${esc(a.d.sn)}">
-        <div class="a-ic">${a.sev === "bad" ? ICO.alarm : a.sev === "warn" ? ICO.money : ICO.offline}</div>
+      <div class="alarm-item sev-${a.sev}" data-sn="${esc(a.sn)}">
+        <div class="a-ic">${ICO[a.ic] || ICO.alarm}</div>
         <div class="a-main">
-          <div class="a-title">${esc(a.d.label || a.d.sn)}</div>
-          <div class="a-sub"><span class="a-tag sev-${a.sev}">${sevTag[a.sev] || "Bilgi"}</span><span class="a-reason">${esc(a.reason)}</span> · <span class="mono">${esc(a.d.sn)}</span>${a.d.city ? " · " + esc(a.d.city) : ""}</div>
+          <div class="a-title">${esc(a.customer || "Atanmamış müşteri")}</div>
+          <div class="a-sub">Sayaç <span class="mono">${esc(a.label || a.sn)}</span>${a.label && a.label !== a.sn ? ` · ${esc(a.sn)}` : ""}${a.city ? " · " + esc(a.city) : ""}</div>
         </div>
-        <div class="a-time">${timeAgo(a.d.last_seen_at)}</div>
-      </div>`).join("")}</div>` : `<div class="alarm-empty"><div class="ae-ic">✓</div><div class="ae-txt"><b>Her şey yolunda</b><span>Dikkat gerektiren sayaç yok.</span></div></div>`;
+        <div class="a-status"><span class="a-tag sev-${a.sev}">${esc(a.text)}</span><span class="a-time">${timeAgo(a.time)}</span></div>
+      </div>`).join("")}</div>` : `<div class="alarm-empty"><div class="ae-ic">✓</div><div class="ae-txt"><b>Her şey yolunda</b><span>Arızalı veya kopuk sayaç yok.</span></div></div>`;
     const alarmsHtml = `
       <div class="panel">
         <div class="panel-head"><h2>Alarm ve Uyarılar</h2><div class="panel-actions">${attArr.length ? `<span class="pill ${attArr.some((a) => a.sev === "bad") ? "warn" : "on"}"><span class="pdot"></span>${nf(attArr.length)}</span>` : ""}<button class="btn sm ghost" data-go="alarms">Tümü →</button></div></div>
