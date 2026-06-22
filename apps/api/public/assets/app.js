@@ -1227,7 +1227,7 @@
       </div>
 
       <div class="grid-2">
-        <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="ov-col">
           <div class="panel panel-pad">
             <div class="switch-hero">
               <div id="relaySlot"></div>
@@ -1271,7 +1271,7 @@
           </div>
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="ov-col">
           <div class="panel">
             <div class="panel-head"><h2>Sayaç & Bakiye</h2></div>
             <div class="panel-pad"><div class="metric-cards" id="metricSlot"></div></div>
