@@ -628,6 +628,21 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .bl-aws { display: flex; align-items: center; gap: 10px; margin-top: 13px; flex-wrap: wrap; }
 .bl-aws .muted { font-size: 12px; }
 
+/* billing: cost-basis selector + usage tables */
+.bl-basis-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.bl-basis-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.seg.basis-seg { gap: 4px; flex-wrap: wrap; }
+.seg.basis-seg button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 14px; line-height: 1.2; min-width: 130px; }
+.seg.basis-seg button b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.seg.basis-seg button.active { background: var(--brand); color: #fff; }
+.seg.basis-seg button.active b { color: #fff; }
+.seg.basis-seg button:disabled { opacity: .45; cursor: not-allowed; }
+.bl-hint { font-size: 12.5px; color: var(--txt-2); margin-bottom: 12px; padding: 9px 12px; border-radius: 10px; background: var(--brand-soft); border: 1px solid var(--line); }
+.bl-hint.warn { background: color-mix(in srgb, var(--warn) 12%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--txt); }
+.sub-sn { display: inline-block; margin-left: 8px; font-size: 11px; color: var(--muted); }
+.doton { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--on); margin-left: 8px; vertical-align: middle; box-shadow: 0 0 0 3px color-mix(in srgb, var(--on) 22%, transparent); }
+.pill.sm { font-size: 11px; padding: 2px 8px; }
+
 /* overview: cost summary panel */
 .cost-panel { margin-bottom: 18px; }
 .cost-body { display: flex; flex-direction: column; gap: 16px; padding: 16px 18px; }

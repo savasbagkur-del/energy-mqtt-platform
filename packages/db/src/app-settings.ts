@@ -5,10 +5,17 @@ import type { Pool } from "pg";
  * the billing chargeback config so monthly cost / margin / currency stay identical on every device.
  */
 
+/** Which figure drives chargeback: the manual estimate, AWS month-to-date actual, or the month-end forecast. */
+export type CostBasis = "manual" | "actual" | "forecast";
+
 export interface BillingConfig {
   monthlyCost: number;
   marginPct: number;
   currency: string;
+  /** Cost figure used as the allocation base. 'manual' = monthlyCost field above. */
+  costBasis: CostBasis;
+  /** Rolling window (days) over which per-device data volume is measured for usage-weighted allocation. */
+  usageWindowDays: number;
 }
 
 /** Loosely-typed input (any field may be absent/undefined); sanitized to a full BillingConfig. */
@@ -16,20 +23,33 @@ export interface BillingConfigInput {
   monthlyCost?: number | undefined;
   marginPct?: number | undefined;
   currency?: string | undefined;
+  costBasis?: string | undefined;
+  usageWindowDays?: number | undefined;
 }
 
 const BILLING_KEY = "billing";
 const ALLOWED_CURRENCIES = ["USD", "EUR", "TRY"];
-const DEFAULT_BILLING: BillingConfig = { monthlyCost: 92, marginPct: 30, currency: "USD" };
+const ALLOWED_BASIS: CostBasis[] = ["manual", "actual", "forecast"];
+const DEFAULT_BILLING: BillingConfig = {
+  monthlyCost: 92,
+  marginPct: 30,
+  currency: "USD",
+  costBasis: "manual",
+  usageWindowDays: 7
+};
 
 const sanitize = (input: BillingConfigInput | null | undefined): BillingConfig => {
   const v = input ?? {};
   const cost = Number(v.monthlyCost);
   const margin = Number(v.marginPct);
+  const win = Number(v.usageWindowDays);
   return {
     monthlyCost: Number.isFinite(cost) && cost >= 0 ? cost : DEFAULT_BILLING.monthlyCost,
     marginPct: Number.isFinite(margin) && margin >= 0 ? margin : DEFAULT_BILLING.marginPct,
-    currency: typeof v.currency === "string" && ALLOWED_CURRENCIES.includes(v.currency) ? v.currency : DEFAULT_BILLING.currency
+    currency: typeof v.currency === "string" && ALLOWED_CURRENCIES.includes(v.currency) ? v.currency : DEFAULT_BILLING.currency,
+    costBasis: typeof v.costBasis === "string" && (ALLOWED_BASIS as string[]).includes(v.costBasis)
+      ? (v.costBasis as CostBasis) : DEFAULT_BILLING.costBasis,
+    usageWindowDays: Number.isFinite(win) && win >= 1 && win <= 90 ? Math.round(win) : DEFAULT_BILLING.usageWindowDays
   };
 };
 

@@ -217,6 +217,108 @@ export const getBillingAllocation = async (
   return { totalDevices, items, generatedAt: new Date().toISOString() };
 };
 
+/** Per-device measured data volume, used for usage-weighted cost allocation. */
+export interface UsageAllocationRow {
+  sn: string;
+  label: string | null;
+  model: string | null;
+  telemetryMode: string | null;
+  customerId: number | null;
+  customerName: string | null;
+  projectName: string | null;
+  online: boolean;
+  /** Messages persisted in the measurement window. */
+  msgs: number;
+  /** Stored payload bytes in the measurement window (pg_column_size of payload_json). */
+  bytes: number;
+  /** Messages projected to a 30-day month. */
+  monthlyMsgs: number;
+  /** Bytes projected to a 30-day month. */
+  monthlyBytes: number;
+}
+
+export interface UsageAllocation {
+  windowDays: number;
+  since: string;
+  totalDevices: number;
+  totalMsgs: number;
+  totalBytes: number;
+  /** True when no telemetry exists in the window (callers fall back to equal weighting). */
+  noTraffic: boolean;
+  items: UsageAllocationRow[];
+  generatedAt: string;
+}
+
+/**
+ * Measures how much data each managed device actually wrote over a rolling window, so the shared
+ * infrastructure bill can be split by real usage (frequency × payload size) rather than a flat
+ * per-device share. AWS doesn't charge per message (self-managed EMQX + Postgres), but data volume
+ * is the fairest proxy for the compute/storage/egress a device drives — and it matches operator
+ * intuition: a meter reporting every 5 min costs more than one reporting every 15 min.
+ */
+export const getUsageAllocation = async (
+  pool: Pool,
+  windowDays = 7,
+  onlineWindowSec = 300
+): Promise<UsageAllocation> => {
+  const days = clampInt(windowDays, 7, 1, 90);
+  const onlineWin = String(clampInt(onlineWindowSec, 300, 30, 86400));
+  const res = await pool.query(
+    `SELECT
+       d.sn,
+       d.label,
+       d.model,
+       d.telemetry_mode,
+       d.customer_id,
+       c.name AS customer_name,
+       d.project_name,
+       (ls.last_seen_at >= NOW() - ($2 || ' seconds')::interval) AS online,
+       COUNT(t.id) AS msgs,
+       COALESCE(SUM(pg_column_size(t.payload_json)), 0) AS bytes
+     FROM devices d
+     LEFT JOIN customers c ON c.id = d.customer_id
+     LEFT JOIN device_latest_state ls ON ls.sn = d.sn
+     LEFT JOIN telemetry_raw t
+       ON t.sn = d.sn AND t.created_at >= NOW() - ($1 || ' days')::interval
+     WHERE d.registry_status IN ('registered', 'auto')
+     GROUP BY d.sn, d.label, d.model, d.telemetry_mode, d.customer_id, c.name, d.project_name, ls.last_seen_at
+     ORDER BY bytes DESC, msgs DESC`,
+    [String(days), onlineWin]
+  );
+  const factor = 30 / days;
+  const items: UsageAllocationRow[] = res.rows.map((r) => {
+    const msgs = int(r.msgs);
+    const bytes = int(r.bytes);
+    return {
+      sn: r.sn as string,
+      label: (r.label as string | null) ?? null,
+      model: (r.model as string | null) ?? null,
+      telemetryMode: (r.telemetry_mode as string | null) ?? null,
+      customerId: r.customer_id === null || r.customer_id === undefined ? null : int(r.customer_id),
+      customerName: (r.customer_name as string | null) ?? null,
+      projectName: (r.project_name as string | null) ?? null,
+      online: r.online === true,
+      msgs,
+      bytes,
+      monthlyMsgs: Math.round(msgs * factor),
+      monthlyBytes: Math.round(bytes * factor)
+    };
+  });
+  const totalMsgs = items.reduce((a, it) => a + it.msgs, 0);
+  const totalBytes = items.reduce((a, it) => a + it.bytes, 0);
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  return {
+    windowDays: days,
+    since,
+    totalDevices: items.length,
+    totalMsgs,
+    totalBytes,
+    noTraffic: totalBytes === 0 && totalMsgs === 0,
+    items,
+    generatedAt: new Date().toISOString()
+  };
+};
+
 /** A roll-up node (counts that aggregate upward through the tree). */
 export interface HierarchyStats {
   total: number;

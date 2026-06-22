@@ -17,7 +17,7 @@
   // While a switch/refresh command is mid-flight we poll fast so the operator sees the
   // "opened / closed" confirmation promptly; otherwise we stay on the slow idle cadence.
   const FAST_REFRESH_MS = 10000;
-  const defaultSettings = { refreshMs: 300000, onlineWindowSec: 360, theme: "light", offlineAlarmMin: 15, themeRev: THEME_REV, settingsRev: SETTINGS_REV, billing: { monthlyCost: 92, marginPct: 30, currency: "USD" } };
+  const defaultSettings = { refreshMs: 300000, onlineWindowSec: 360, theme: "light", offlineAlarmMin: 15, themeRev: THEME_REV, settingsRev: SETTINGS_REV, billing: { monthlyCost: 92, marginPct: 30, currency: "USD", costBasis: "manual", usageWindowDays: 7 } };
 
   function loadUser() {
     try { const u = JSON.parse(localStorage.getItem(USER_KEY) || "null"); return u && u.username ? u : null; }
@@ -1672,10 +1672,19 @@
     const v = Number.isFinite(n) ? n : 0;
     return `${curSym()}${v.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
+  function fmtBytes(n) {
+    const v = Number.isFinite(n) ? n : 0;
+    if (v < 1024) return `${Math.round(v)} B`;
+    const u = ["KB", "MB", "GB", "TB"];
+    let x = v / 1024, i = 0;
+    while (x >= 1024 && i < u.length - 1) { x /= 1024; i++; }
+    return `${x.toLocaleString("tr-TR", { maximumFractionDigits: x < 10 ? 1 : 0 })} ${u[i]}`;
+  }
   function defaultPeriod() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   }
+  const TELE_MODE_LABEL = { consumption: "Tüketim", analysis: "Analiz" };
   const billingState = { period: defaultPeriod() };
 
   async function renderBilling(silent) {
@@ -1684,41 +1693,85 @@
         <div class="panel"><div class="empty">Bu sayfa yalnızca yöneticiler içindir.</div></div>`;
       return;
     }
-    let res, cfg;
+    let cfg, aws;
     try {
-      [res, cfg] = await Promise.all([
-        api("GET", `/fleet/billing?window=${state.settings.onlineWindowSec}`),
-        api("GET", "/billing/config").catch(() => state.settings.billing)
+      cfg = await api("GET", "/billing/config").catch(() => state.settings.billing);
+    } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
+    // Config lives server-side now (shared across devices); cache locally for instant first paint.
+    const b = Object.assign({}, state.settings.billing, cfg || {});
+    state.settings.billing = b; saveSettings();
+    const winDays = Number(b.usageWindowDays) || 7;
+    let usage;
+    try {
+      [usage, aws] = await Promise.all([
+        api("GET", `/fleet/billing/usage?days=${winDays}&window=${state.settings.onlineWindowSec}`),
+        api("GET", "/billing/aws-cost").catch(() => null)
       ]);
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
 
-    const items = res.items || [];
-    const totalDevices = res.totalDevices || 0;
-    // Config lives server-side now (shared across devices); cache locally for instant first paint.
-    const b = cfg || state.settings.billing;
-    state.settings.billing = b; saveSettings();
-    const cost = Number(b.monthlyCost) || 0;
     const margin = Number(b.marginPct) || 0;
-    const totalCharge = cost * (1 + margin / 100);
+    const manualCost = Number(b.monthlyCost) || 0;
+    const awsOk = !!aws;
+    const mtd = awsOk ? Number(aws.monthToDate) || 0 : null;
+    const forecast = awsOk && aws.forecastMonthEnd != null ? Number(aws.forecastMonthEnd) : null;
+    // Resolve the active basis, gracefully degrading to manual when an AWS figure is unavailable.
+    let basis = b.costBasis || "manual";
+    if ((basis === "actual" && mtd == null) || (basis === "forecast" && forecast == null)) basis = "manual";
+    const baseFor = (bs) => bs === "actual" ? (mtd ?? manualCost) : bs === "forecast" ? (forecast ?? manualCost) : manualCost;
+    const baseCost = baseFor(basis);
+    const totalCharge = baseCost * (1 + margin / 100);
+    const basisLabel = { manual: "Elle tanımlı", actual: "Şu an ödenecek (AWS)", forecast: "Bu ay tahmini (AWS)" };
 
-    // Allocate the shared monthly bill by device share, then apply the margin to get the invoice amount.
-    const rows = items.map((it) => {
-      const share = totalDevices > 0 ? it.devices / totalDevices : 0;
-      const costShare = cost * share;
-      const charge = costShare * (1 + margin / 100);
-      return { ...it, share, costShare, charge };
+    // Usage-weighted allocation: share ∝ monthly data volume (frequency × payload). Falls back to an
+    // equal split when there's no telemetry yet, so a fresh fleet still shows sensible numbers.
+    const dev = usage.items || [];
+    const totalDevices = usage.totalDevices || dev.length;
+    const noTraffic = usage.noTraffic || usage.totalBytes === 0;
+    const weightOf = (d) => noTraffic ? 1 : (d.monthlyBytes > 0 ? d.monthlyBytes : 0);
+    let sumW = dev.reduce((a, d) => a + weightOf(d), 0);
+    if (sumW <= 0) sumW = dev.length || 1; // all-zero guard → equal split
+    const eqW = noTraffic || dev.every((d) => weightOf(d) === 0);
+    const devRows = dev.map((d) => {
+      const w = eqW ? 1 : weightOf(d);
+      const share = (eqW ? (dev.length ? 1 / dev.length : 0) : w / sumW);
+      const costShare = baseCost * share;
+      return { ...d, share, costShare, charge: costShare * (1 + margin / 100) };
+    }).sort((a, c) => c.charge - a.charge);
+
+    // Roll device rows up to project (customer + project) for the per-project table.
+    const pmap = new Map();
+    devRows.forEach((d) => {
+      const key = (d.customerName || "~") + "||" + (d.projectName || "~");
+      const p = pmap.get(key) || { customerName: d.customerName, projectName: d.projectName, devices: 0, online: 0, monthlyMsgs: 0, monthlyBytes: 0, costShare: 0, charge: 0 };
+      p.devices += 1; p.online += d.online ? 1 : 0; p.monthlyMsgs += d.monthlyMsgs; p.monthlyBytes += d.monthlyBytes;
+      p.costShare += d.costShare; p.charge += d.charge;
+      pmap.set(key, p);
     });
+    const projRows = Array.from(pmap.values()).map((p) => ({ ...p, share: baseCost > 0 ? p.costShare / baseCost : 0 })).sort((a, c) => c.charge - a.charge);
+
+    const perDevAvg = totalDevices > 0 ? totalCharge / totalDevices : 0;
+    const basisOpt = (id, label, val, enabled) => `<button data-basis="${id}" class="${basis === id ? "active" : ""}" ${enabled ? "" : "disabled"} title="${enabled ? "" : "AWS yapılandırılmamış"}">${label}<b>${val == null ? "—" : money(val)}</b></button>`;
 
     view.innerHTML = `
       <div class="page-head">
-        <div><h1>Maliyet & Faturalandırma</h1><div class="sub">Aylık altyapı maliyeti cihaz payına göre proje başına dağıtılır · ${nf(totalDevices)} faturalanabilir cihaz</div></div>
+        <div><h1>Maliyet & Faturalandırma</h1><div class="sub">Altyapı maliyeti, her cihazın gerçek veri hacmine (yazma sıklığı × boyut) göre dağıtılır · son ${nf(winDays)} gün ölçümü · ${nf(totalDevices)} faturalanabilir cihaz</div></div>
         <div class="head-actions"><button class="btn" id="blExport"><svg viewBox="0 0 24 24" class="ic"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>CSV indir</button></div>
       </div>
 
       <div class="panel bl-config">
+        <div class="bl-basis-row">
+          <div class="bl-basis-label">Maliyet temeli</div>
+          <div class="seg basis-seg" id="blBasis">
+            ${basisOpt("actual", "Şu an ödenecek", mtd, awsOk)}
+            ${basisOpt("forecast", "Bu ay tahmini", forecast, awsOk && forecast != null)}
+            ${basisOpt("manual", "Elle", manualCost, true)}
+          </div>
+          <button class="btn sm ghost" id="blAws" title="AWS Cost Explorer'dan tazele"><svg viewBox="0 0 24 24" class="ic"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg>AWS tazele</button>
+        </div>
+        ${!awsOk ? `<div class="bl-hint">AWS rakamları için sunucuda anahtar tanımlı değil — şimdilik "Elle" kullanılıyor. <span class="muted">(.env.production)</span></div>` : `<div class="bl-hint">Kaynak: AWS Cost Explorer${aws.period ? ` · dönem ${esc(aws.period.start)} → ${esc(aws.period.end)}` : ""}. "Şu an ödenecek" = ay başından bugüne gerçekleşen; "Bu ay tahmini" = AWS ay-sonu projeksiyonu.</div>`}
         <div class="form-grid four">
-          <label>Aylık altyapı maliyeti
-            <div class="in-affix"><span>${curSym()}</span><input id="blCost" type="number" min="0" step="1" value="${esc(cost)}" /></div>
+          <label>Elle aylık maliyet
+            <div class="in-affix"><span>${curSym()}</span><input id="blCost" type="number" min="0" step="1" value="${esc(manualCost)}" /></div>
           </label>
           <label>Kâr marjı (%)
             <input id="blMargin" type="number" min="0" step="1" value="${esc(margin)}" />
@@ -1728,47 +1781,68 @@
               ${["USD", "EUR", "TRY"].map((c) => `<option value="${c}" ${b.currency === c ? "selected" : ""}>${c} (${CUR_SYM[c]})</option>`).join("")}
             </select>
           </label>
-          <label>Fatura dönemi
-            <input id="blPeriod" type="month" value="${esc(billingState.period)}" />
+          <label>Ölçüm penceresi (gün)
+            <input id="blWin" type="number" min="1" max="90" step="1" value="${esc(winDays)}" />
           </label>
-        </div>
-        <div class="bl-aws">
-          <button class="btn sm" id="blAws"><svg viewBox="0 0 24 24" class="ic"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg>AWS'den çek</button>
-          <span class="muted" id="blAwsInfo">Gerçek faturayı (bu ay + ay sonu tahmini) AWS Cost Explorer'dan otomatik doldurur.</span>
         </div>
       </div>
 
       <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-top">Toplam maliyet</div><div class="kpi-val">${money(cost)}</div><div class="kpi-sub">aylık altyapı</div></div>
+        <div class="kpi"><div class="kpi-top">Maliyet temeli</div><div class="kpi-val">${money(baseCost)}</div><div class="kpi-sub">${basisLabel[basis]}</div></div>
         <div class="kpi info accent"><div class="kpi-top">Toplam talep</div><div class="kpi-val accent">${money(totalCharge)}</div><div class="kpi-sub">marj %${nf(margin)} dahil</div></div>
-        <div class="kpi"><div class="kpi-top">Cihaz başı</div><div class="kpi-val">${money(totalDevices > 0 ? totalCharge / totalDevices : 0)}</div><div class="kpi-sub">ortalama / ay</div></div>
-        <div class="kpi"><div class="kpi-top">Proje</div><div class="kpi-val">${nf(rows.length)}</div><div class="kpi-sub">${nf(totalDevices)} cihaz</div></div>
+        <div class="kpi"><div class="kpi-top">Cihaz başı (ort.)</div><div class="kpi-val">${money(perDevAvg)}</div><div class="kpi-sub">aylık ortalama</div></div>
+        <div class="kpi"><div class="kpi-top">Aylık veri</div><div class="kpi-val">${fmtBytes(devRows.reduce((a, d) => a + d.monthlyBytes, 0))}</div><div class="kpi-sub">${nf(devRows.reduce((a, d) => a + d.monthlyMsgs, 0))} mesaj / ay</div></div>
       </div>
+
+      ${eqW ? `<div class="bl-hint warn">Seçilen pencerede telemetri verisi yok — maliyet şimdilik cihazlara eşit dağıtıldı. Cihazlar veri yazmaya başlayınca dağıtım otomatik gerçek hacme göre yapılacak.</div>` : ""}
 
       <div class="panel">
         <div class="panel-head"><h2>Proje başına dağıtım</h2><span class="muted">${esc(billingState.period)}</span></div>
         <div class="table-wrap"><table class="data">
           <thead><tr>
-            <th>Müşteri</th><th>Proje / Bina</th><th class="num">Cihaz</th><th class="num">Çevrimiçi</th>
+            <th>Müşteri</th><th>Proje / Bina</th><th class="num">Cihaz</th><th class="num">Aylık mesaj</th><th class="num">Aylık veri</th>
             <th class="num">Pay</th><th class="num">Maliyet payı</th><th class="num">Talep tutarı</th>
           </tr></thead>
-          <tbody>${rows.length ? rows.map((r) => `
+          <tbody>${projRows.length ? projRows.map((r) => `
             <tr>
               <td><b>${esc(r.customerName || "—")}</b></td>
               <td>${esc(r.projectName || "(proje atanmamış)")}</td>
               <td class="num">${nf(r.devices)}</td>
-              <td class="num muted">${nf(r.online)}</td>
+              <td class="num muted">${nf(r.monthlyMsgs)}</td>
+              <td class="num muted">${fmtBytes(r.monthlyBytes)}</td>
               <td class="num">${(r.share * 100).toFixed(1)}%</td>
               <td class="num muted">${money(r.costShare)}</td>
               <td class="num"><b>${money(r.charge)}</b></td>
-            </tr>`).join("") : `<tr><td colspan="7" class="empty">Faturalanabilir cihaz yok.</td></tr>`}</tbody>
+            </tr>`).join("") : `<tr><td colspan="8" class="empty">Faturalanabilir cihaz yok.</td></tr>`}</tbody>
           <tfoot><tr>
             <td><b>Toplam</b></td><td></td>
-            <td class="num"><b>${nf(totalDevices)}</b></td><td></td>
+            <td class="num"><b>${nf(totalDevices)}</b></td>
+            <td class="num"><b>${nf(projRows.reduce((a, r) => a + r.monthlyMsgs, 0))}</b></td>
+            <td class="num"><b>${fmtBytes(projRows.reduce((a, r) => a + r.monthlyBytes, 0))}</b></td>
             <td class="num"><b>100%</b></td>
-            <td class="num"><b>${money(cost)}</b></td>
+            <td class="num"><b>${money(baseCost)}</b></td>
             <td class="num accent"><b>${money(totalCharge)}</b></td>
           </tr></tfoot>
+        </table></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Cihaz başına birim maliyet</h2><span class="muted">gerçek veri hacmine göre · son ${nf(winDays)} gün</span></div>
+        <div class="table-wrap"><table class="data">
+          <thead><tr>
+            <th>Cihaz</th><th>Model</th><th>Mod</th><th class="num">Aylık mesaj</th><th class="num">Aylık veri</th>
+            <th class="num">Pay</th><th class="num">Birim maliyet</th>
+          </tr></thead>
+          <tbody>${devRows.length ? devRows.map((d) => `
+            <tr data-sn="${esc(d.sn)}">
+              <td><b>${esc(d.label || d.sn)}</b>${d.label ? `<span class="mono sub-sn">${esc(d.sn)}</span>` : ""}${d.online ? `<span class="doton" title="çevrimiçi"></span>` : ""}</td>
+              <td>${esc(d.model || "—")}</td>
+              <td>${d.telemetryMode ? `<span class="pill sm">${esc(TELE_MODE_LABEL[d.telemetryMode] || d.telemetryMode)}</span>` : `<span class="muted">—</span>`}</td>
+              <td class="num muted">${nf(d.monthlyMsgs)}</td>
+              <td class="num muted">${fmtBytes(d.monthlyBytes)}</td>
+              <td class="num">${(d.share * 100).toFixed(1)}%</td>
+              <td class="num"><b>${money(d.charge)}</b></td>
+            </tr>`).join("") : `<tr><td colspan="7" class="empty">Cihaz yok.</td></tr>`}</tbody>
         </table></div>
       </div>`;
 
@@ -1779,38 +1853,35 @@
       catch (e) { toast("Kaydedilemedi", e.message || "Sunucuya yazılamadı", "error"); }
       renderBilling(true);
     };
+    $$("#blBasis [data-basis]", view).forEach((el) => el.addEventListener("click", () => {
+      if (el.disabled) return;
+      saveCfg({ costBasis: el.dataset.basis });
+    }));
     $("#blCost").addEventListener("change", (e) => saveCfg({ monthlyCost: Math.max(0, Number(e.target.value) || 0) }));
     $("#blMargin").addEventListener("change", (e) => saveCfg({ marginPct: Math.max(0, Number(e.target.value) || 0) }));
     $("#blCur").addEventListener("change", (e) => saveCfg({ currency: e.target.value }));
-    $("#blPeriod").addEventListener("change", (e) => { billingState.period = e.target.value || defaultPeriod(); renderBilling(true); });
+    $("#blWin").addEventListener("change", (e) => saveCfg({ usageWindowDays: Math.min(90, Math.max(1, Math.round(Number(e.target.value) || 7))) }));
+    $$("[data-sn]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`)));
     $("#blExport").addEventListener("click", () => {
-      const cols = ["donem", "musteri", "proje", "cihaz", "cevrimici", "pay_yuzde", "maliyet_payi", "talep_tutari", "para_birimi"];
-      const lines = [cols.join(",")].concat(rows.map((r) => [
-        billingState.period, csvCell(r.customerName || ""), csvCell(r.projectName || ""),
-        r.devices, r.online, (r.share * 100).toFixed(2),
-        r.costShare.toFixed(2), r.charge.toFixed(2), b.currency
+      const cols = ["donem", "sn", "etiket", "model", "mod", "musteri", "proje", "aylik_mesaj", "aylik_bayt", "pay_yuzde", "maliyet_payi", "birim_maliyet", "para_birimi"];
+      const lines = [cols.join(",")].concat(devRows.map((d) => [
+        billingState.period, csvCell(d.sn), csvCell(d.label || ""), csvCell(d.model || ""), csvCell(d.telemetryMode || ""),
+        csvCell(d.customerName || ""), csvCell(d.projectName || ""), d.monthlyMsgs, d.monthlyBytes,
+        (d.share * 100).toFixed(2), d.costShare.toFixed(2), d.charge.toFixed(2), b.currency
       ].join(",")));
-      lines.push(["", "TOPLAM", "", totalDevices, "", "100.00", cost.toFixed(2), totalCharge.toFixed(2), b.currency].join(","));
-      downloadFile(`volt4amper-faturalandirma-${billingState.period}.csv`, lines.join("\n"));
-      toast("Dışa aktarıldı", `${rows.length} proje · ${billingState.period}`, "success");
+      lines.push(["", "TOPLAM", "", "", "", "", "", devRows.reduce((a, d) => a + d.monthlyMsgs, 0), devRows.reduce((a, d) => a + d.monthlyBytes, 0), "100.00", baseCost.toFixed(2), totalCharge.toFixed(2), b.currency].join(","));
+      downloadFile(`volt4amper-birim-maliyet-${billingState.period}.csv`, lines.join("\n"));
+      toast("Dışa aktarıldı", `${devRows.length} cihaz · ${billingState.period}`, "success");
     });
     $("#blAws").addEventListener("click", async () => {
-      const btn = $("#blAws"); const info = $("#blAwsInfo");
-      btn.disabled = true; const old = info.textContent; info.textContent = "AWS Cost Explorer sorgulanıyor…";
+      const btn = $("#blAws"); btn.disabled = true;
       try {
         const c = await api("GET", "/billing/aws-cost");
-        const pick = c.forecastMonthEnd != null ? c.forecastMonthEnd : c.monthToDate;
-        const patch = { monthlyCost: Math.round((pick + Number.EPSILON) * 100) / 100 };
-        if (c.currency && CUR_SYM[c.currency]) patch.currency = c.currency;
-        const next = Object.assign({}, b, patch);
-        try { state.settings.billing = await api("PUT", "/billing/config", next); }
-        catch { state.settings.billing = next; }
-        saveSettings();
         const fc = c.forecastMonthEnd != null ? ` · ay sonu tahmini ${money(c.forecastMonthEnd)}` : "";
-        toast("AWS maliyeti alındı", `Bu ay ${money(c.monthToDate)}${fc}`, "success", 5000);
+        toast("AWS maliyeti güncellendi", `Şu an ödenecek ${money(c.monthToDate)}${fc}`, "success", 5000);
         renderBilling(true);
       } catch (e) {
-        btn.disabled = false; info.textContent = old;
+        btn.disabled = false;
         if (e.status === 503) toast("AWS yapılandırılmamış", "Sunucuda AWS anahtarı tanımlı değil (.env.production).", "warn", 6000);
         else toast("AWS'den alınamadı", (e.body && e.body.detail) || e.message || "Bilinmeyen hata", "error", 6000);
       }

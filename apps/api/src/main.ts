@@ -61,6 +61,7 @@ import {
   getFleetOverview,
   getProjectOverview,
   getBillingAllocation,
+  getUsageAllocation,
   getBillingConfig,
   setBillingConfig,
   getCustomerHierarchy,
@@ -1923,6 +1924,17 @@ app.get("/fleet/billing", requireAdmin, async (req, res) => {
 });
 
 // Billing chargeback config (monthly cost + margin + currency), shared across devices.
+app.get("/fleet/billing/usage", requireAdmin, async (req, res) => {
+  try {
+    const days = typeof req.query.days === "string" ? Number(req.query.days) : undefined;
+    const win = typeof req.query.window === "string" ? Number(req.query.window) : undefined;
+    res.status(200).json(await getUsageAllocation(dbPool, days, win));
+  } catch (error) {
+    console.error("[api] failed to build usage allocation", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_build_usage_allocation" });
+  }
+});
+
 app.get("/billing/config", requireAdmin, async (_req, res) => {
   try {
     res.status(200).json(await getBillingConfig(dbPool));
