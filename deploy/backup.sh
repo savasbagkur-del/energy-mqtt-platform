@@ -43,9 +43,27 @@ TS="$(date +%Y%m%d_%H%M%S)"
 OUT="${BACKUP_DIR}/${PGDB}_${TS}.dump"
 
 echo "[backup] dumping ${PGDB}@${PGHOST}:${PGPORT} -> ${OUT}"
-docker run --rm --network host -e PGPASSWORD="${PGPASS}" "${PG_IMAGE}" \
-  pg_dump -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDB}" \
-  -Fc --no-owner --no-privileges > "${OUT}"
+
+if [[ "${PGHOST}" == "postgres" ]]; then
+  # Compose-internal DB: reach via the stack network (host --network host cannot resolve 'postgres').
+  COMPOSE_FILE="${ROOT_DIR}/docker-compose.prod.yml"
+  if [[ ! -f "${COMPOSE_FILE}" ]]; then
+    echo "[backup] error: ${COMPOSE_FILE} not found (needed for internal postgres backup)" >&2
+    exit 1
+  fi
+  NET="$(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps -q postgres | xargs -r docker inspect --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
+  if [[ -z "${NET}" ]]; then
+    echo "[backup] error: postgres container not running — start stack first" >&2
+    exit 1
+  fi
+  docker run --rm --network "${NET}" -e PGPASSWORD="${PGPASS}" "${PG_IMAGE}" \
+    pg_dump -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDB}" \
+    -Fc --no-owner --no-privileges > "${OUT}"
+else
+  docker run --rm --network host -e PGPASSWORD="${PGPASS}" "${PG_IMAGE}" \
+    pg_dump -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDB}" \
+    -Fc --no-owner --no-privileges > "${OUT}"
+fi
 
 if [[ ! -s "${OUT}" ]]; then
   echo "[backup] error: dump is empty; removing ${OUT}" >&2

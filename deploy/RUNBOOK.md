@@ -24,7 +24,21 @@ veri DB'dedir. Yedekleme = PostgreSQL yedeği.
 
 ## 2. Deploy ve güncelleme
 
-İlk kurulum ve sonraki güncellemeler:
+**Canlıda yalnızca `.env.production` kullanın.** Dev `.env` (127.0.0.1:5433) compose ile karıştırılırsa
+panel girişi ve DB bağlantısı kırılır.
+
+Güvenli güncelleme (önerilen):
+
+```bash
+cd /home/ubuntu/app
+chmod +x deploy/*.sh deploy/lib/common.sh
+./deploy/preflight.sh          # sadece kontrol (build/restart yok)
+./deploy/deploy.sh --backup    # yedek al + pull + build + migrate + up + doğrula
+```
+
+`deploy.sh` otomatik doğrular: `/ready` → `dbUp:true`, `/auth/login` → `401` (DB erişilebilir).
+
+İlk kurulum:
 
 ```bash
 cd /opt/communication-mvp
@@ -35,7 +49,7 @@ git pull                      # yeni sürüm
 `bootstrap.sh` sırayla: imajları build eder, migration'ı çalıştırır, stack'i ayağa kaldırır,
 API ve worker `/health` uçlarını bekler. Health başarısızsa çıkış kodu 1 verir ve log komutunu yazar.
 
-Manuel:
+Manuel (acil durum — env dosyasını unutmayın):
 
 ```bash
 COMPOSE="docker compose --env-file .env.production -f docker-compose.prod.yml"
@@ -43,6 +57,7 @@ $COMPOSE build
 $COMPOSE run --rm migrate
 $COMPOSE up -d
 $COMPOSE ps
+./deploy/preflight.sh
 ```
 
 ---

@@ -5,76 +5,34 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env.production"
 COMPOSE_FILE="${ROOT_DIR}/docker-compose.prod.yml"
 
+# shellcheck source=deploy/lib/common.sh
+source "${ROOT_DIR}/deploy/lib/common.sh"
+
 echo "[bootstrap] checking docker..."
-if ! command -v docker >/dev/null 2>&1; then
-  echo "[bootstrap] error: docker is not installed"
-  exit 1
-fi
-
-if ! docker info >/dev/null 2>&1; then
-  echo "[bootstrap] error: docker daemon is not running"
-  exit 1
-fi
-
-echo "[bootstrap] checking docker compose..."
-if ! docker compose version >/dev/null 2>&1; then
-  echo "[bootstrap] error: docker compose plugin is not available"
-  exit 1
-fi
+deploy_require_tools
 
 echo "[bootstrap] checking required files..."
-if [[ ! -f "${ENV_FILE}" ]]; then
-  echo "[bootstrap] error: ${ENV_FILE} not found"
-  echo "[bootstrap] copy .env.production.example to .env.production and fill values"
-  exit 1
-fi
+deploy_require_files
 
-if [[ ! -f "${COMPOSE_FILE}" ]]; then
-  echo "[bootstrap] error: ${COMPOSE_FILE} not found"
-  exit 1
-fi
-
-echo "[bootstrap] preflight: checking .env.production for unfilled placeholders..."
-# Abort if any secret still holds the example placeholder — a common deploy-day mistake.
-REQUIRED_VARS=(POSTGRES_PASSWORD API_AUTH_TOKEN MQTT_PASSWORD DEVICE_MQTT_PASSWORD)
-preflight_rc=0
-for var in "${REQUIRED_VARS[@]}"; do
-  line="$(grep -E "^${var}=" "${ENV_FILE}" | head -n1 || true)"
-  value="${line#*=}"
-  value="$(echo "${value}" | tr -d '[:space:]')"
-  if [[ -z "${line}" ]]; then
-    echo "[bootstrap]   MISSING: ${var} is not set in .env.production"
-    preflight_rc=1
-  elif [[ -z "${value}" || "${value}" == "change_me"* ]]; then
-    echo "[bootstrap]   PLACEHOLDER: ${var} still holds an empty/'change_me' value"
-    preflight_rc=1
-  fi
-done
-if [[ "${preflight_rc}" -ne 0 ]]; then
-  echo "[bootstrap] error: fill the values above in ${ENV_FILE} before deploying"
-  exit 1
-fi
-echo "[bootstrap]   ok: required secrets are set"
-
-COMPOSE=(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}")
+echo "[bootstrap] preflight: checking .env.production..."
+deploy_check_required_secrets
+deploy_check_production_topology
 
 echo "[bootstrap] building images (api + worker)..."
-"${COMPOSE[@]}" build
+deploy_compose build
 
 echo "[bootstrap] running database migrations..."
-"${COMPOSE[@]}" run --rm migrate
+deploy_compose run --rm migrate
 
 echo "[bootstrap] starting production stack..."
-"${COMPOSE[@]}" up -d
+deploy_compose up -d
 
 echo "[bootstrap] current service status:"
-"${COMPOSE[@]}" ps
+deploy_compose ps
 
 echo "[bootstrap] waiting for health checks..."
-API_PORT_VALUE="$(grep -E '^API_PORT=' "${ENV_FILE}" | head -n1 | cut -d= -f2 | tr -d '[:space:]')"
-WORKER_PORT_VALUE="$(grep -E '^WORKER_HEALTH_PORT=' "${ENV_FILE}" | head -n1 | cut -d= -f2 | tr -d '[:space:]')"
-API_PORT_VALUE="${API_PORT_VALUE:-3000}"
-WORKER_PORT_VALUE="${WORKER_PORT_VALUE:-9100}"
+API_PORT_VALUE="$(deploy_readenv "${ENV_FILE}" API_PORT)"; API_PORT_VALUE="${API_PORT_VALUE:-3000}"
+WORKER_PORT_VALUE="$(deploy_readenv "${ENV_FILE}" WORKER_HEALTH_PORT)"; WORKER_PORT_VALUE="${WORKER_PORT_VALUE:-9100}"
 
 check_health() {
   local name="$1" url="$2" ok=0
@@ -98,8 +56,11 @@ check_health "mqtt-worker" "http://127.0.0.1:${WORKER_PORT_VALUE}/health" || rc=
 
 if [[ "${rc}" -ne 0 ]]; then
   echo "[bootstrap] one or more services failed health checks; inspect logs:"
-  echo "[bootstrap]   ${COMPOSE[*]} logs --tail=50"
+  deploy_print_compose_hint
+  echo "[bootstrap]   ... logs --tail=50"
   exit 1
 fi
+
+deploy_verify_stack
 
 echo "[bootstrap] done. API /metrics: http://127.0.0.1:${API_PORT_VALUE}/metrics  worker /metrics: http://127.0.0.1:${WORKER_PORT_VALUE}/metrics"
