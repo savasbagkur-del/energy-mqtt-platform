@@ -43,6 +43,20 @@ const baseUpsert = (sn: string, whitelistEnabled = false) => ({
   whitelistEnabled
 });
 
+test("findQuarantineMatchesForSn: matches unassigned registered device", async (t) => {
+  if (!dbAvailable) return t.skip(skipReason);
+  const sn = "SN-IMPORT-REG-1";
+  await p().query(`DELETE FROM devices WHERE sn = $1`, [sn]);
+  await p().query(
+    `INSERT INTO devices (sn, registry_status, lifecycle_status, registered_at, updated_at)
+     VALUES ($1, 'registered', 'active', NOW(), NOW())`,
+    [sn]
+  );
+  const { best } = await findQuarantineMatchesForSn(p(), sn);
+  assert.ok(best);
+  assert.equal(best.sn, sn);
+});
+
 test("findQuarantineMatchesForSn: matches unassigned auto device (whitelist off)", async (t) => {
   if (!dbAvailable) return t.skip(skipReason);
   const sn = "SN-IMPORT-AUTO-1";

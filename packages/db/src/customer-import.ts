@@ -221,16 +221,13 @@ const toMatchInfo = (row: { sn: string; model?: string | null; last_seen_at?: st
   matchType
 });
 
-/** Unassigned devices seen in the field (MQTT) that can be linked to a customer meter. */
-const LINKABLE_FIELD_DEVICE_SQL = `d.customer_id IS NULL AND d.registry_status IN ('quarantined', 'auto')`;
+/** Unassigned devices in the registry that can be linked to a customer meter. */
+const LINKABLE_FIELD_DEVICE_SQL = `d.customer_id IS NULL`;
 
 export const isLinkableFieldDevice = (row: {
   registry_status?: string | null;
   customer_id?: string | null;
-} | null | undefined): boolean =>
-  !!row &&
-  !row.customer_id &&
-  (row.registry_status === "quarantined" || row.registry_status === "auto");
+} | null | undefined): boolean => !!row && !row.customer_id;
 
 export const findQuarantineMatchesForSn = async (
   pool: Pool,

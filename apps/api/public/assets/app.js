@@ -78,23 +78,29 @@
     if (q.length < 2) return [];
     const fetchStatus = (status, term) =>
       api("GET", `/registry/devices?status=${status}&q=${encodeURIComponent(term)}&limit=80`);
-    const [resQ, resAuto] = await Promise.all([fetchStatus("quarantined", q), fetchStatus("auto", q)]);
-    const seen = new Set();
-    let items = [...(resQ.items || []), ...(resAuto.items || [])].filter((d) => {
-      if (!d.sn || seen.has(d.sn)) return false;
-      if (!snMatchesQuarantineQuery(d.sn, q)) return false;
-      seen.add(d.sn);
-      return true;
-    });
-    if (!items.length && q.length > 2) {
-      const tail = q.slice(-2);
-      const [resQ2, resAuto2] = await Promise.all([fetchStatus("quarantined", tail), fetchStatus("auto", tail)]);
-      items = [...(resQ2.items || []), ...(resAuto2.items || [])].filter((d) => {
-        if (!d.sn || seen.has(d.sn)) return false;
+    const pick = (lists) => {
+      const seen = new Set();
+      return lists.flat().filter((d) => {
+        if (!d.sn || seen.has(d.sn) || d.customer_id) return false;
         if (!snMatchesQuarantineQuery(d.sn, q)) return false;
         seen.add(d.sn);
         return true;
       });
+    };
+    const [resQ, resAuto, resReg] = await Promise.all([
+      fetchStatus("quarantined", q),
+      fetchStatus("auto", q),
+      fetchStatus("registered", q)
+    ]);
+    let items = pick([resQ.items || [], resAuto.items || [], resReg.items || []]);
+    if (!items.length && q.length > 2) {
+      const tail = q.slice(-2);
+      const [resQ2, resAuto2, resReg2] = await Promise.all([
+        fetchStatus("quarantined", tail),
+        fetchStatus("auto", tail),
+        fetchStatus("registered", tail)
+      ]);
+      items = pick([resQ2.items || [], resAuto2.items || [], resReg2.items || []]);
     }
     return items;
   }
