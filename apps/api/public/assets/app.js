@@ -2374,13 +2374,16 @@
 
   // -------- topbar interactions
   $("#refreshBtn").addEventListener("click", () => { router(); toast("Yenilendi", "", "success", 1500); });
-  $("#globalSearch").addEventListener("input", debounce((e) => {
-    const q = e.target.value.trim();
-    devicesState.q = q; devicesState.page = 0;
-    if (state.route.name !== "devices") navigate("#/devices");
-    else { const ds = $("#devSearch"); if (ds) ds.value = q; loadDevices(); }
-  }, 350));
-  $("#globalSearch").addEventListener("keydown", (e) => { if (e.key === "Enter" && state.route.name !== "devices") navigate("#/devices"); });
+  const globalSearch = $("#globalSearch");
+  if (globalSearch) {
+    globalSearch.addEventListener("input", debounce((e) => {
+      const q = e.target.value.trim();
+      devicesState.q = q; devicesState.page = 0;
+      if (state.route.name !== "devices") navigate("#/devices");
+      else { const ds = $("#devSearch"); if (ds) ds.value = q; loadDevices(); }
+    }, 350));
+    globalSearch.addEventListener("keydown", (e) => { if (e.key === "Enter" && state.route.name !== "devices") navigate("#/devices"); });
+  }
 
   // -------- iPad-style floating dock nav (toggled from the topbar; stays open across tabs)
   const sidebar = $("#sidebar");

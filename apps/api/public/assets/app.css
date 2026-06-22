@@ -154,8 +154,8 @@ a { color: var(--brand-text); text-decoration: none; }
 /* ---- iPad-style floating dock (was the sidebar) ---- */
 .sidebar {
   position: fixed; left: 50%; bottom: 18px; height: auto;
-  width: min(460px, calc(100vw - 24px)); max-width: calc(100vw - 24px);
-  display: flex; flex-direction: column; align-items: stretch; gap: 9px; padding: 12px;
+  width: min(720px, calc(100vw - 20px)); max-width: calc(100vw - 20px);
+  display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 10px 12px;
   background: color-mix(in srgb, var(--panel) 80%, transparent);
   backdrop-filter: blur(20px) saturate(150%);
   border: 1px solid var(--line); border-radius: 24px;
@@ -167,8 +167,7 @@ a { color: var(--brand-text); text-decoration: none; }
 }
 .sidebar.open { transform: translateX(-50%) translateY(0); opacity: 1; pointer-events: auto; }
 .sidebar .brand, .sidebar .sidebar-foot { display: none; }
-.sidebar .dock-search { width: 100%; }
-body.dock-open .view { padding-bottom: 116px; }
+body.dock-open .view { padding-bottom: 88px; }
 
 /* legacy scrim element (unused by the dock, kept hidden) */
 .nav-scrim { display: none; }
@@ -178,10 +177,11 @@ body.dock-open .view { padding-bottom: 116px; }
 .brand-text strong { font-size: 16px; letter-spacing: .2px; }
 .brand-text span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; }
 
-.nav { display: flex; flex-direction: row; justify-content: center; gap: 5px; margin: 0; }
+.nav { display: flex; flex-direction: row; justify-content: stretch; gap: 4px; margin: 0; width: 100%; }
 .nav-item {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
-  padding: 8px 14px; border-radius: 16px; min-width: 66px;
+  flex: 1 1 0; min-width: 0;
+  padding: 10px 6px; border-radius: 16px;
   color: var(--txt-2); font-weight: 600; font-size: 11px; letter-spacing: .01em;
   position: relative; transition: transform .16s ease, background .16s ease, color .16s ease; white-space: nowrap;
 }
@@ -844,13 +844,13 @@ table.data tfoot td.num { text-align: right; font-family: var(--mono); }
   /* toolbar search goes full width */
   .toolbar input[type="text"], .toolbar #devSearch { width: 100% !important; }
   .modal { padding: 18px; }
-  /* dock: sit lower, allow the row to scroll if it ever overflows a tiny screen */
-  .sidebar { bottom: 12px; padding: 10px; gap: 8px; }
-  .nav { gap: 3px; overflow-x: auto; }
+  /* dock: full-width button row (search removed) */
+  .sidebar { bottom: 10px; padding: 8px 10px; width: calc(100vw - 16px); max-width: calc(100vw - 16px); }
+  .nav { gap: 2px; overflow-x: auto; }
   .nav::-webkit-scrollbar { display: none; }
-  .nav-item { min-width: 58px; padding: 7px 9px; }
-  .nav-item .ic { width: 21px; height: 21px; }
-  body.dock-open .view { padding-bottom: 150px; }
+  .nav-item { min-width: 52px; padding: 9px 4px; }
+  .nav-item .ic { width: 22px; height: 22px; }
+  body.dock-open .view { padding-bottom: 96px; }
   .mix-donut-wrap { width: 152px; height: 152px; }
 }
 @media (max-width: 380px) {
