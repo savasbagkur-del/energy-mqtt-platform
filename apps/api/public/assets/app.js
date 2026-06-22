@@ -1561,13 +1561,16 @@
   // ================================================================ CUSTOMERS
   // How a customer is connected: "panel" (uses our UI), "api" (their software via a key), or both.
   function connBadges(c) {
+    const mode = c.integration_mode || (c.panel_enabled ? "panel" : "api");
     const recent = c.last_api_used_at && (Date.now() - new Date(c.last_api_used_at).getTime() < 7 * 864e5);
     const out = [];
-    if (c.panel_enabled) out.push(`<span class="conn-badge panel">Panel</span>`);
-    if (c.active_key_count > 0) out.push(`<span class="conn-badge api ${recent ? "live" : ""}">API${recent ? " · aktif" : ""}</span>`);
-    if (!out.length) out.push(`<span class="conn-badge none">Bağlı değil</span>`);
+    if (mode === "panel") out.push(`<span class="conn-badge panel">Yerel panel</span>`);
+    else out.push(`<span class="conn-badge api">3. parti API</span>`);
+    if (c.active_key_count > 0) out.push(`<span class="conn-badge api ${recent ? "live" : ""}">API anahtarı${recent ? " · aktif" : ""}</span>`);
     return out.join("");
   }
+
+  const METER_USAGE_LABEL = { prepaid: "Prepaid", postpaid: "Postpaid" };
 
   async function renderCustomers(silent) {
     let res;
@@ -1575,8 +1578,8 @@
     catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
     const items = res.items || [];
     const total = items.length;
-    const apiCount = items.filter((c) => c.active_key_count > 0).length;
-    const panelCount = items.filter((c) => c.panel_enabled).length;
+    const panelCount = items.filter((c) => (c.integration_mode || (c.panel_enabled ? "panel" : "api")) === "panel").length;
+    const apiCount = items.filter((c) => (c.integration_mode || (c.panel_enabled ? "panel" : "api")) === "api").length;
     view.innerHTML = `
       <div class="page-head">
         <div><h1>Müşteriler</h1><div class="sub">${nf(total)} müşteri · ${nf(panelCount)} panel · ${nf(apiCount)} API entegrasyonu</div></div>
@@ -1655,6 +1658,7 @@
           ${acctRow("Ad / Unvan", esc(customer.name))}
           ${acctRow("İletişim", esc(customer.phone || "—"), true)}
           ${acctRow("E-posta", esc(customer.email || "—"))}
+          ${acctRow("Bağlantı tipi", (customer.integration_mode || (customer.panel_enabled ? "panel" : "api")) === "panel" ? "Yerel panel kullanımı" : "3. parti yazılım (API)")}
           ${acctRow("Panel kullanıcı adı", esc(customer.panel_username || "—"), true)}
           ${acctRow("Kayıt tarihi", fmtDate(customer.created_at))}
           ${acctRow("Aktivasyon", customer.activated_at ? fmtDate(customer.activated_at) : `<span class="pill off sm">bekliyor</span>`)}
@@ -1667,6 +1671,8 @@
       return `<tr data-sn="${esc(d.sn)}">
         <td>${st}</td>
         <td class="mono">${esc(d.sn)}</td>
+        <td class="mono">${esc(d.unit_no || "—")}</td>
+        <td>${esc(METER_USAGE_LABEL[d.meter_usage] || d.meter_usage || "Prepaid")}</td>
         <td>${esc(d.label || "—")}</td>
         <td>${esc(d.model || "—")}</td>
         <td class="muted">${esc(lc)}</td>
@@ -1690,8 +1696,8 @@
       <div class="panel">
         <div class="panel-head"><h2>Sayaçlar</h2><span class="panel-note">${nf(devItems.length)} kayıt</span></div>
         <div class="table-wrap"><table class="data">
-          <thead><tr><th>Durum</th><th>SN</th><th>Etiket</th><th>Model</th><th>Yaşam döngüsü</th><th>Son görülme</th><th></th></tr></thead>
-          <tbody>${devItems.length ? devItems.map(devRow).join("") : `<tr><td colspan="7" class="empty">Henüz sayaç yok. “Sayaç ekle” ile kaydedin.</td></tr>`}</tbody>
+          <thead><tr><th>Durum</th><th>SN</th><th>Daire/Dükkan</th><th>Usage</th><th>Etiket</th><th>Model</th><th>Yaşam döngüsü</th><th>Son görülme</th><th></th></tr></thead>
+          <tbody>${devItems.length ? devItems.map(devRow).join("") : `<tr><td colspan="9" class="empty">Henüz sayaç yok. “Sayaç ekle” ile kaydedin.</td></tr>`}</tbody>
         </table></div>
       </div>`;
 
@@ -1713,6 +1719,13 @@
   }
 
   function openCustomerModal() {
+    const meterRowHtml = () => `
+      <div class="meter-onboard-row">
+        <label>Seri no<input class="m-sn" placeholder="SN" autocomplete="off" /></label>
+        <label>Daire / dükkan no<input class="m-unit" placeholder="Örn. A-12" autocomplete="off" /></label>
+        <label>Usage<select class="m-usage"><option value="prepaid" selected>Prepaid</option><option value="postpaid">Postpaid</option></select></label>
+        <button type="button" class="btn sm ghost m-remove" title="Satırı kaldır">✕</button>
+      </div>`;
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal lg">
         <h3>Yeni müşteri hesabı</h3>
@@ -1723,31 +1736,81 @@
           <label>İletişim numarası *<input id="cuPhone" type="tel" placeholder="05xx xxx xx xx" autocomplete="tel" /></label>
           <label>E-posta <input id="cuEmail" type="email" placeholder="(opsiyonel)" autocomplete="email" /></label>
         </div>
-        <div class="form-section-h">Panel giriş hesabı</div>
-        <div class="form-grid">
-          <label class="check full"><input type="checkbox" id="cuPanel" checked /> <span>Müşteri panelden giriş yapacak</span></label>
-          <label>Kullanıcı adı *<input id="cuUser" placeholder="örn. ahmet.yilmaz" autocomplete="off" /></label>
-          <label>Parola *<input id="cuPass" type="password" placeholder="en az 8 karakter" autocomplete="new-password" /></label>
-          <label>Parola (tekrar) *<input id="cuPass2" type="password" autocomplete="new-password" /></label>
+        <div class="form-section-h">Bağlantı tipi</div>
+        <div class="integration-seg" id="cuModeSeg">
+          <button type="button" class="seg-btn active" data-mode="panel">Yerel panel</button>
+          <button type="button" class="seg-btn" data-mode="api">3. parti API</button>
         </div>
-        <div class="bl-hint">Kayıt tarihi: bugün · Aktivasyon: ilk sayaç aktif olunca otomatik</div>
+        <p class="muted integration-hint" id="cuModeHint">Müşteri bu panelden giriş yaparak sayaçlarını görür.</p>
+        <div id="cuPanelBlock">
+          <div class="form-section-h">Panel giriş hesabı</div>
+          <div class="form-grid">
+            <label>Kullanıcı adı *<input id="cuUser" placeholder="örn. ahmet.yilmaz" autocomplete="off" /></label>
+            <label>Parola *<input id="cuPass" type="password" placeholder="en az 8 karakter" autocomplete="new-password" /></label>
+            <label>Parola (tekrar) *<input id="cuPass2" type="password" autocomplete="new-password" /></label>
+          </div>
+        </div>
+        <div class="form-section-h">Sayaçlar <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">(opsiyonel — kayıt sırasında müşteriye bağlanır)</span></div>
+        <div id="cuMeters">${meterRowHtml()}</div>
+        <button type="button" class="btn sm" id="cuAddMeter">+ Sayaç satırı ekle</button>
+        <div class="bl-hint">Kayıt tarihi: bugün · Aktivasyon: ilk sayaç aktif olunca otomatik · Usage varsayılan: Prepaid</div>
         <div class="modal-actions"><button class="btn" id="cuCancel">Vazgeç</button><button class="btn primary" id="cuSave">Hesabı oluştur</button></div>
       </div></div>`;
-    const panelCb = $("#cuPanel");
-    const panelFields = () => {
-      const on = panelCb.checked;
-      ["cuUser", "cuPass", "cuPass2"].forEach((id) => { const el = $("#" + id); if (el) el.closest("label").style.opacity = on ? "1" : ".45"; });
+    let integrationMode = "panel";
+    const panelBlock = $("#cuPanelBlock");
+    const modeHint = $("#cuModeHint");
+    const syncMode = () => {
+      const isPanel = integrationMode === "panel";
+      panelBlock.style.display = isPanel ? "" : "none";
+      modeHint.textContent = isPanel
+        ? "Müşteri bu panelden giriş yaparak sayaçlarını görür."
+        : "Müşteri kendi yazılımını API anahtarı ile bağlar; panel girişi oluşturulmaz.";
+      $$("#cuModeSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === integrationMode));
     };
-    panelCb.addEventListener("change", panelFields);
-    panelFields();
+    $$("#cuModeSeg .seg-btn").forEach((b) => b.addEventListener("click", () => {
+      integrationMode = b.dataset.mode === "api" ? "api" : "panel";
+      syncMode();
+    }));
+    syncMode();
+    const metersEl = $("#cuMeters");
+    const bindMeterRow = (row) => {
+      const rm = row.querySelector(".m-remove");
+      if (rm) rm.addEventListener("click", () => {
+        if (metersEl.querySelectorAll(".meter-onboard-row").length > 1) row.remove();
+        else {
+          row.querySelector(".m-sn").value = "";
+          row.querySelector(".m-unit").value = "";
+          row.querySelector(".m-usage").value = "prepaid";
+        }
+      });
+    };
+    bindMeterRow(metersEl.querySelector(".meter-onboard-row"));
+    $("#cuAddMeter").addEventListener("click", () => {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = meterRowHtml();
+      const row = wrap.firstElementChild;
+      metersEl.appendChild(row);
+      bindMeterRow(row);
+    });
     $("#cuCancel").addEventListener("click", closeModal);
     $("#cuSave").addEventListener("click", async () => {
       const name = $("#cuName").value.trim();
       const phone = $("#cuPhone").value.trim();
-      const panelOn = panelCb.checked;
+      const panelOn = integrationMode === "panel";
       const username = $("#cuUser").value.trim();
       const pass = $("#cuPass").value;
       const pass2 = $("#cuPass2").value;
+      const meters = [];
+      let meterErr = null;
+      $$(".meter-onboard-row", metersEl).forEach((row) => {
+        const sn = row.querySelector(".m-sn")?.value.trim() || "";
+        const unitNo = row.querySelector(".m-unit")?.value.trim() || "";
+        const meterUsage = row.querySelector(".m-usage")?.value || "prepaid";
+        if (!sn && !unitNo) return;
+        if (!sn) { meterErr = "sn_required"; return; }
+        meters.push({ sn, unitNo: unitNo || null, meterUsage });
+      });
+      if (meterErr === "sn_required") { toast("Eksik", "Sayaç satırında seri numarası zorunlu", "error"); return; }
       if (!name) { toast("Eksik", "Ad / unvan zorunlu", "error"); return; }
       if (!phone || phone.replace(/\D/g, "").length < 10) { toast("Eksik", "Geçerli iletişim numarası zorunlu", "error"); return; }
       if (panelOn) {
@@ -1756,23 +1819,29 @@
         if (pass !== pass2) { toast("Eksik", "Parolalar eşleşmiyor", "error"); return; }
       }
       try {
-        await api("POST", "/customers", {
+        const created = await api("POST", "/customers", {
           name,
           phone,
           email: $("#cuEmail").value.trim() || null,
+          integrationMode,
           panelEnabled: panelOn,
           username: panelOn ? username : undefined,
-          password: panelOn ? pass : undefined
+          password: panelOn ? pass : undefined,
+          meters: meters.length ? meters : undefined
         });
-        toast("Müşteri oluşturuldu", name, "success");
-        closeModal(); renderCustomers();
+        const meterMsg = created.meters_registered ? ` · ${created.meters_registered} sayaç eklendi` : "";
+        toast("Müşteri oluşturuldu", `${name}${meterMsg}`, "success");
+        closeModal();
+        if (created.id) navigate(`#/customer/${encodeURIComponent(created.id)}`);
+        else renderCustomers();
       } catch (e) {
         const map = {
           name_required: "Ad / unvan zorunlu.",
           phone_required: "Geçerli iletişim numarası zorunlu.",
           invalid_username: "Kullanıcı adı 3–32 karakter (harf, rakam, . _ -).",
           weak_password: "Parola en az 8 karakter olmalı.",
-          username_taken: "Bu kullanıcı adı zaten kullanılıyor."
+          username_taken: "Bu kullanıcı adı zaten kullanılıyor.",
+          duplicate_meter_sn: "Aynı seri numarası birden fazla kez girildi."
         };
         toast("Hata", map[e.message] || e.message, "error");
       }

@@ -1374,7 +1374,38 @@ app.post("/customers", requireAdmin, async (req, res) => {
   const phone = phoneRaw.replace(/\s/g, "");
   const username = typeof body.username === "string" ? body.username.trim() : "";
   const password = typeof body.password === "string" ? body.password : "";
-  const panelEnabled = body.panelEnabled !== false && body.panel_enabled !== false;
+  const integrationRaw = typeof body.integrationMode === "string"
+    ? body.integrationMode.trim().toLowerCase()
+    : typeof body.integration_mode === "string"
+      ? body.integration_mode.trim().toLowerCase()
+      : "";
+  const integrationMode = integrationRaw === "api" ? "api" : "panel";
+  const panelEnabled = integrationMode === "panel" && body.panelEnabled !== false && body.panel_enabled !== false;
+
+  const parseMeters = (): Array<{ sn: string; unitNo: string | null; meterUsage: "prepaid" | "postpaid" }> => {
+    const raw = body.meters;
+    if (!Array.isArray(raw)) return [];
+    const out: Array<{ sn: string; unitNo: string | null; meterUsage: "prepaid" | "postpaid" }> = [];
+    const seen = new Set<string>();
+    for (const row of raw) {
+      if (!row || typeof row !== "object") continue;
+      const o = row as Record<string, unknown>;
+      const sn = typeof o.sn === "string" ? o.sn.trim() : "";
+      if (!sn) continue;
+      const key = sn.toLowerCase();
+      if (seen.has(key)) {
+        throw new Error("duplicate_meter_sn");
+      }
+      seen.add(key);
+      const unitNo = typeof o.unitNo === "string" ? o.unitNo.trim() || null
+        : typeof o.unit_no === "string" ? o.unit_no.trim() || null : null;
+      const usageRaw = typeof o.meterUsage === "string" ? o.meterUsage.trim().toLowerCase()
+        : typeof o.meter_usage === "string" ? o.meter_usage.trim().toLowerCase() : "prepaid";
+      const meterUsage = usageRaw === "postpaid" ? "postpaid" : "prepaid";
+      out.push({ sn, unitNo, meterUsage });
+    }
+    return out;
+  };
 
   if (!name) {
     res.status(400).json({ error: "name_required", detail: "Ad / unvan zorunlu" });
@@ -1396,6 +1427,7 @@ app.post("/customers", requireAdmin, async (req, res) => {
   }
 
   try {
+    const meters = parseMeters();
     const result = await createCustomerWithAccount(dbPool, {
       name,
       phone: phoneRaw,
@@ -1403,14 +1435,21 @@ app.post("/customers", requireAdmin, async (req, res) => {
       notes: typeof body.notes === "string" ? body.notes.trim() || null : null,
       username: panelEnabled ? username : "",
       passwordHash: panelEnabled ? hashPassword(password) : "",
-      panelEnabled
+      integrationMode,
+      panelEnabled,
+      meters
     });
     res.status(201).json({
       ...result.customer,
-      panel_user: result.panelUser
+      panel_user: result.panelUser,
+      meters_registered: result.metersRegistered
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes("duplicate_meter_sn")) {
+      res.status(400).json({ error: "duplicate_meter_sn", detail: "Aynı seri numarası birden fazla kez girildi" });
+      return;
+    }
     if (msg.includes("panel_users_username_key") || msg.includes("duplicate key") && msg.includes("username")) {
       res.status(409).json({ error: "username_taken", detail: "Bu kullanıcı adı zaten kullanılıyor" });
       return;
@@ -1654,7 +1693,13 @@ const toMetadataInput = (
     notes: str("notes") ?? null,
     telemetryMode: telemetryModeRaw ?? null,
     projectName: str("projectName") ?? str("project_name") ?? null,
-    siteName: str("siteName") ?? str("site_name") ?? null
+    siteName: str("siteName") ?? str("site_name") ?? null,
+    unitNo: str("unitNo") ?? str("unit_no") ?? null,
+    meterUsage: (() => {
+      const u = str("meterUsage") ?? str("meter_usage");
+      if (u === undefined || u === null) return null;
+      return u.toLowerCase() === "postpaid" ? "postpaid" as const : "prepaid" as const;
+    })()
   };
 };
 

@@ -479,6 +479,8 @@ export interface FleetDeviceRow {
   sn: string;
   label: string | null;
   subscriber_no: string | null;
+  unit_no: string | null;
+  meter_usage: string;
   customer_name: string | null;
   property_type_label: string | null;
   city: string | null;
@@ -533,6 +535,8 @@ const normaliseFleetRow = (r: Record<string, unknown>): FleetDeviceRow => ({
   sn: String(r.sn),
   label: (r.label as string) ?? null,
   subscriber_no: (r.subscriber_no as string) ?? null,
+  unit_no: (r.unit_no as string) ?? null,
+  meter_usage: String(r.meter_usage ?? "prepaid"),
   customer_name: (r.customer_name as string) ?? null,
   property_type_label: (r.property_type_label as string) ?? null,
   city: (r.city as string) ?? null,
@@ -622,7 +626,7 @@ export const listFleetDevices = async (
     ${whereSql}`;
 
   const selectCols = `
-    d.sn, d.label, d.subscriber_no,
+    d.sn, d.label, d.subscriber_no, d.unit_no, d.meter_usage,
     c.name AS customer_name,
     pt.label AS property_type_label,
     d.city, d.district, d.region, d.lat, d.lng,

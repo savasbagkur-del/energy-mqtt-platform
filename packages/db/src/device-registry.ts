@@ -80,6 +80,10 @@ export interface DeviceMetadataInput {
   projectName?: string | null;
   /** Site / campus name (one level above the building) for the customer hierarchy. */
   siteName?: string | null;
+  /** Flat / room / shop identifier shown on customer onboarding. */
+  unitNo?: string | null;
+  /** Billing usage model: prepaid (default) or postpaid. */
+  meterUsage?: "prepaid" | "postpaid" | null;
 }
 
 const REGISTRY_SELECT = `
@@ -89,6 +93,7 @@ const REGISTRY_SELECT = `
     d.property_type_id, pt.code AS property_type_code, pt.label AS property_type_label,
     d.address_line, d.district, d.city, d.lat, d.lng,
     d.tariff, d.region, d.dealer, d.install_date, d.notes, d.telemetry_mode, d.model, d.project_name, d.site_name,
+    d.unit_no, d.meter_usage,
     d.registry_status, d.lifecycle_status, d.registered_at, d.commissioned_at, d.last_seen_at
   FROM devices d
   LEFT JOIN customers c ON c.id = d.customer_id
@@ -108,10 +113,10 @@ export const registerDevice = async (
     `INSERT INTO devices (
       sn, product_key, label, subscriber_no, customer_id, property_type_id,
       address_line, district, city, lat, lng, tariff, region, dealer, install_date, notes,
-      telemetry_mode, project_name, site_name,
+      telemetry_mode, project_name, site_name, unit_no, meter_usage,
       registry_status, lifecycle_status, registered_at, updated_at
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
       'registered', 'registered', NOW(), NOW()
     )
     ON CONFLICT (sn) DO UPDATE SET
@@ -133,6 +138,8 @@ export const registerDevice = async (
       telemetry_mode = COALESCE(EXCLUDED.telemetry_mode, devices.telemetry_mode),
       project_name = COALESCE(EXCLUDED.project_name, devices.project_name),
       site_name = COALESCE(EXCLUDED.site_name, devices.site_name),
+      unit_no = COALESCE(EXCLUDED.unit_no, devices.unit_no),
+      meter_usage = COALESCE(EXCLUDED.meter_usage, devices.meter_usage),
       registry_status = 'registered',
       registered_at = COALESCE(devices.registered_at, NOW()),
       -- promote a never-contacted registration to 'registered' lifecycle; keep contacted state
@@ -157,7 +164,9 @@ export const registerDevice = async (
       input.notes ?? null,
       input.telemetryMode ?? null,
       input.projectName ?? null,
-      input.siteName ?? null
+      input.siteName ?? null,
+      input.unitNo ?? null,
+      input.meterUsage ?? "prepaid"
     ]
   );
   // Mode may have just changed; drop the cached value so the telemetry path re-reads it.

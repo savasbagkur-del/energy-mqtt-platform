@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import type { PanelUserPublic } from "./panel-users.js";
+import { registerDevice } from "./device-registry.js";
 
 const int = (v: unknown): number => {
   const n = Number(v);
@@ -13,6 +14,7 @@ export interface CustomerOverviewRow {
   email: string | null;
   notes: string | null;
   panel_enabled: boolean;
+  integration_mode: "panel" | "api";
   panel_username: string | null;
   device_count: number;
   online_count: number;
@@ -34,7 +36,7 @@ export const listCustomersOverview = async (
   const win = Math.max(30, Math.min(86400, Math.floor(onlineWindowSec)));
   const res = await pool.query(
     `SELECT
-       c.id, c.name, c.phone, c.email, c.notes, c.panel_enabled, c.created_at,
+       c.id, c.name, c.phone, c.email, c.notes, c.panel_enabled, c.integration_mode, c.created_at,
        MAX(pu.username) AS panel_username,
        COUNT(DISTINCT d.sn) AS device_count,
        COUNT(DISTINCT d.sn) FILTER (
@@ -58,6 +60,7 @@ export const listCustomersOverview = async (
     email: (r.email as string | null) ?? null,
     notes: (r.notes as string | null) ?? null,
     panel_enabled: r.panel_enabled === true,
+    integration_mode: r.integration_mode === "api" ? "api" : "panel",
     panel_username: (r.panel_username as string | null) ?? null,
     device_count: int(r.device_count),
     online_count: int(r.online_count),
@@ -77,7 +80,7 @@ export const getCustomerDetailById = async (
   const win = Math.max(30, Math.min(86400, Math.floor(onlineWindowSec)));
   const res = await pool.query(
     `SELECT
-       c.id, c.name, c.phone, c.email, c.notes, c.panel_enabled, c.created_at,
+       c.id, c.name, c.phone, c.email, c.notes, c.panel_enabled, c.integration_mode, c.created_at,
        MAX(pu.username) AS panel_username,
        COUNT(DISTINCT d.sn) AS device_count,
        COUNT(DISTINCT d.sn) FILTER (
@@ -104,6 +107,7 @@ export const getCustomerDetailById = async (
     email: (r.email as string | null) ?? null,
     notes: (r.notes as string | null) ?? null,
     panel_enabled: r.panel_enabled === true,
+    integration_mode: r.integration_mode === "api" ? "api" : "panel",
     panel_username: (r.panel_username as string | null) ?? null,
     device_count: int(r.device_count),
     online_count: int(r.online_count),
@@ -121,6 +125,7 @@ export interface CustomerDetailRow {
   email: string | null;
   notes: string | null;
   panel_enabled: boolean;
+  integration_mode: "panel" | "api";
   panel_username: string | null;
   created_at: string;
   activated_at: string | null;
@@ -133,10 +138,17 @@ const toCustomerDetail = (r: Record<string, unknown>): CustomerDetailRow => ({
   email: (r.email as string | null) ?? null,
   notes: (r.notes as string | null) ?? null,
   panel_enabled: r.panel_enabled === true,
+  integration_mode: r.integration_mode === "api" ? "api" : "panel",
   panel_username: (r.panel_username as string | null) ?? null,
   created_at: String(r.created_at),
   activated_at: (r.activated_at as string | null) ?? null
 });
+
+export interface CustomerOnboardMeter {
+  sn: string;
+  unitNo?: string | null;
+  meterUsage?: "prepaid" | "postpaid";
+}
 
 export interface CreateCustomerAccountInput {
   name: string;
@@ -145,12 +157,16 @@ export interface CreateCustomerAccountInput {
   notes?: string | null;
   username: string;
   passwordHash: string;
+  /** panel = local UI login; api = third-party software via customer API keys. */
+  integrationMode?: "panel" | "api";
   panelEnabled?: boolean;
+  meters?: CustomerOnboardMeter[];
 }
 
 export interface CreateCustomerAccountResult {
   customer: CustomerDetailRow;
   panelUser: PanelUserPublic | null;
+  metersRegistered: number;
 }
 
 /** Creates customer + linked panel viewer account in one transaction. */
@@ -161,17 +177,19 @@ export const createCustomerWithAccount = async (
   const client: PoolClient = await pool.connect();
   try {
     await client.query("BEGIN");
-    const panelOn = input.panelEnabled !== false;
+    const integrationMode = input.integrationMode === "api" ? "api" : "panel";
+    const panelOn = integrationMode === "panel" && input.panelEnabled !== false;
     const custRes = await client.query(
-      `INSERT INTO customers (name, phone, email, notes, panel_enabled)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, phone, email, notes, panel_enabled, created_at`,
+      `INSERT INTO customers (name, phone, email, notes, panel_enabled, integration_mode)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, name, phone, email, notes, panel_enabled, integration_mode, created_at`,
       [
         input.name,
         input.phone,
         input.email ?? null,
         input.notes ?? null,
-        panelOn
+        panelOn,
+        integrationMode
       ]
     );
     const cust = custRes.rows[0]!;
@@ -194,6 +212,21 @@ export const createCustomerWithAccount = async (
         last_login_at: null
       };
     }
+    let metersRegistered = 0;
+    const meters = input.meters ?? [];
+    for (const m of meters) {
+      const sn = m.sn.trim();
+      if (!sn) continue;
+      const unitNo = m.unitNo?.trim() || null;
+      await registerDevice(client, {
+        sn,
+        customerId,
+        unitNo,
+        label: unitNo,
+        meterUsage: m.meterUsage === "postpaid" ? "postpaid" : "prepaid"
+      });
+      metersRegistered += 1;
+    }
     await client.query("COMMIT");
     return {
       customer: toCustomerDetail({
@@ -201,7 +234,8 @@ export const createCustomerWithAccount = async (
         panel_username: panelUser?.username ?? null,
         activated_at: null
       }),
-      panelUser
+      panelUser,
+      metersRegistered
     };
   } catch (e) {
     await client.query("ROLLBACK");
@@ -225,7 +259,7 @@ export const updateCustomer = async (
        panel_enabled = COALESCE($6, panel_enabled),
        updated_at = NOW()
      WHERE id = $1
-     RETURNING id, name, phone, email, notes, panel_enabled, created_at`,
+     RETURNING id, name, phone, email, notes, panel_enabled, integration_mode, created_at`,
     [
       id,
       patch.name ?? null,
