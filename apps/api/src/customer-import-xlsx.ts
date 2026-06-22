@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { normalizeImportSn } from "@communication/db";
 
 const FORM_SHEET = "Kayıt Formu";
 
@@ -50,6 +51,9 @@ const borderAll = (style: "thin" | "medium" = "thin"): Partial<ExcelJS.Borders> 
 
 const cellText = (v: ExcelJS.CellValue): string => {
   if (v == null) return "";
+  if (typeof v === "object" && v !== null && "result" in v) {
+    return cellText((v as { result: ExcelJS.CellValue }).result);
+  }
   if (typeof v === "object" && "richText" in (v as ExcelJS.CellRichTextValue)) {
     return (v as ExcelJS.CellRichTextValue).richText.map((t) => t.text).join("").trim();
   }
@@ -57,8 +61,15 @@ const cellText = (v: ExcelJS.CellValue): string => {
     return String((v as ExcelJS.CellHyperlinkValue).text ?? "").trim();
   }
   if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return normalizeImportSn(String(Math.trunc(v)));
+  }
   let s = String(v).trim();
   if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, "");
+  if (/^[\d.]+e[+-]?\d+$/i.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) return normalizeImportSn(String(Math.trunc(n)));
+  }
   return s;
 };
 
@@ -321,7 +332,7 @@ const readMetersForBlock = (ws: ExcelJS.Worksheet, bannerRow: number): Array<Rec
   let emptyStreak = 0;
   for (let i = 0; i < METER_ROWS + 20; i += 1) {
     const r = start + i;
-    const sn = readMerged(ws, r, METER_COL.sn);
+    const sn = normalizeImportSn(readMerged(ws, r, METER_COL.sn));
     const unit = readMerged(ws, r, METER_COL.unit);
     const usage = readMerged(ws, r, METER_COL.usage);
     const note = readMerged(ws, r, METER_COL.note);

@@ -116,6 +116,21 @@ const normalizeIntegration = (raw: string): "panel" | "api" => {
 
 export type MeterUsage = "prepaid" | "analysis";
 
+/** Normalize SN from Excel/CSV (scientific notation, trailing .0, spaces). */
+export const normalizeImportSn = (raw: string): string => {
+  let s = String(raw ?? "").trim().replace(/\s/g, "");
+  if (!s) return "";
+  if (/^[\d.]+e[+-]?\d+$/i.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) s = String(Math.trunc(n));
+  }
+  if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, "");
+  if (typeof raw === "number" || /^\d+$/.test(s)) {
+    s = s.replace(/\D/g, "");
+  }
+  return s;
+};
+
 const normalizeUsage = (raw: string): MeterUsage => {
   const t = raw.trim().toLowerCase();
   if (t === "analiz" || t === "analysis" || t === "postpaid") return "analysis";
@@ -179,15 +194,17 @@ export const parseCustomerImportRows = (
     group.rowNums.push(rowNum);
 
     if (sn) {
-      const snKey = sn.toLowerCase();
+      const snNorm = normalizeImportSn(sn);
+      if (!snNorm) return;
+      const snKey = snNorm.toLowerCase();
       if (meterSeen.has(snKey)) {
-        errors.push({ rowNum, message: `tekrarlayan seri no: ${sn}` });
+        errors.push({ rowNum, message: `tekrarlayan seri no: ${snNorm}` });
         return;
       }
       meterSeen.add(snKey);
       group.meters.push({
         rowNum,
-        sn,
+        sn: snNorm,
         unitNo: pick(row, "daire_dukkan", "unit_no", "unitNo", "daire", "daire / dükkan", "daire / dukkan") || null,
         meterUsage: normalizeUsage(pick(row, "usage", "meter_usage", "meterUsage") || "prepaid")
       });
@@ -208,33 +225,65 @@ export const findQuarantineMatchesForSn = async (
   pool: Pool,
   sn: string
 ): Promise<{ best: QuarantineMatchInfo | null; options: QuarantineMatchInfo[] }> => {
-  const trimmed = sn.trim();
+  const trimmed = normalizeImportSn(sn);
   if (!trimmed) return { best: null, options: [] };
 
-  const exact = await getDeviceRegistry(pool, trimmed);
-  if (exact?.registry_status === "quarantined") {
-    const info = toMatchInfo(exact, "exact");
+  const exactQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
+    `SELECT d.sn, d.model, d.last_seen_at
+     FROM devices d
+     WHERE d.registry_status = 'quarantined' AND d.sn = $1
+     LIMIT 1`,
+    [trimmed]
+  );
+  if (exactQ.rows[0]) {
+    const info = toMatchInfo(exactQ.rows[0], "exact");
     return { best: info, options: [info] };
   }
 
-  const tail = trimmed.slice(-2);
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits && digits !== trimmed) {
+    const digitQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
+      `SELECT d.sn, d.model, d.last_seen_at
+       FROM devices d
+       WHERE d.registry_status = 'quarantined'
+         AND regexp_replace(d.sn, '[^0-9]', '', 'g') = $1
+       ORDER BY (d.sn = $2) DESC, d.last_seen_at DESC NULLS LAST
+       LIMIT 5`,
+      [digits, trimmed]
+    );
+    if (digitQ.rows.length === 1) {
+      const info = toMatchInfo(digitQ.rows[0]!, digitQ.rows[0]!.sn === trimmed ? "exact" : "suffix");
+      return { best: info, options: [info] };
+    }
+    if (digitQ.rows.length > 1) {
+      const options = digitQ.rows.map((r) => toMatchInfo(r, r.sn === trimmed ? "exact" : "suffix"));
+      const exactIn = options.find((o) => o.sn === trimmed) ?? options.find((o) => normalizeImportSn(o.sn) === trimmed);
+      if (exactIn) return { best: exactIn, options };
+      return { best: null, options };
+    }
+  }
+
+  const tailLen = trimmed.length >= 10 ? 4 : 2;
+  const tail = trimmed.slice(-tailLen);
   if (tail.length < 2) return { best: null, options: [] };
 
   const res = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
     `SELECT d.sn, d.model, d.last_seen_at
      FROM devices d
-     WHERE d.registry_status = 'quarantined' AND d.sn ILIKE $1
-     ORDER BY d.last_seen_at DESC NULLS LAST
-     LIMIT 20`,
-    [`%${tail}`]
+     WHERE d.registry_status = 'quarantined' AND d.sn LIKE $1
+     ORDER BY
+       CASE WHEN d.sn = $2 THEN 0 WHEN d.sn LIKE $3 THEN 1 ELSE 2 END,
+       d.last_seen_at DESC NULLS LAST
+     LIMIT 50`,
+    [`%${tail}`, trimmed, `%${tail}`]
   );
   const options = res.rows
     .filter((r) => r.sn.toLowerCase().endsWith(tail.toLowerCase()))
-    .map((r) => toMatchInfo(r, "suffix"));
+    .map((r) => toMatchInfo(r, r.sn === trimmed ? "exact" : "suffix"));
 
+  const exactInList = options.find((o) => o.sn === trimmed || normalizeImportSn(o.sn) === trimmed);
+  if (exactInList) return { best: exactInList, options };
   if (options.length === 1) return { best: options[0]!, options };
-  const exactSuffix = options.find((o) => o.sn === trimmed);
-  if (exactSuffix) return { best: exactSuffix, options };
   return { best: null, options };
 };
 
