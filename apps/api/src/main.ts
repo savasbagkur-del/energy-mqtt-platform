@@ -44,6 +44,7 @@ import {
   createPropertyType,
   listCustomers,
   createCustomer,
+  createCustomerWithAccount,
   listCustomersOverview,
   updateCustomer,
   listApiKeys,
@@ -1365,23 +1366,55 @@ app.get("/customers", async (_req, res) => {
   }
 });
 
-app.post("/customers", async (req, res) => {
+app.post("/customers", requireAdmin, async (req, res) => {
   const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
   const name = typeof body.name === "string" ? body.name.trim() : "";
+  const phoneRaw = typeof body.phone === "string" ? body.phone.trim() : "";
+  const phone = phoneRaw.replace(/\s/g, "");
+  const username = typeof body.username === "string" ? body.username.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  const panelEnabled = body.panelEnabled !== false && body.panel_enabled !== false;
+
   if (!name) {
-    res.status(400).json({ error: "name_required" });
+    res.status(400).json({ error: "name_required", detail: "Ad / unvan zorunlu" });
     return;
   }
+  if (!phone || !/^\+?\d{10,15}$/.test(phone)) {
+    res.status(400).json({ error: "phone_required", detail: "Geçerli iletişim numarası zorunlu (10–15 hane)" });
+    return;
+  }
+  if (panelEnabled) {
+    if (!isValidUsername(username)) {
+      res.status(400).json({ error: "invalid_username", detail: "Kullanıcı adı 3–32 karakter (harf, rakam, . _ -)" });
+      return;
+    }
+    if (password.length < 8) {
+      res.status(400).json({ error: "weak_password", detail: "Parola en az 8 karakter olmalı" });
+      return;
+    }
+  }
+
   try {
-    const row = await createCustomer(dbPool, {
+    const result = await createCustomerWithAccount(dbPool, {
       name,
-      phone: typeof body.phone === "string" ? body.phone : null,
-      email: typeof body.email === "string" ? body.email : null,
-      notes: typeof body.notes === "string" ? body.notes : null
+      phone: phoneRaw,
+      email: typeof body.email === "string" ? body.email.trim() || null : null,
+      notes: typeof body.notes === "string" ? body.notes.trim() || null : null,
+      username: panelEnabled ? username : "",
+      passwordHash: panelEnabled ? hashPassword(password) : "",
+      panelEnabled
     });
-    res.status(201).json(row);
+    res.status(201).json({
+      ...result.customer,
+      panel_user: result.panelUser
+    });
   } catch (error) {
-    console.error("[api] failed to create customer", { message: error instanceof Error ? error.message : error });
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes("panel_users_username_key") || msg.includes("duplicate key") && msg.includes("username")) {
+      res.status(409).json({ error: "username_taken", detail: "Bu kullanıcı adı zaten kullanılıyor" });
+      return;
+    }
+    console.error("[api] failed to create customer", { message: msg });
     res.status(500).json({ error: "failed_to_create_customer" });
   }
 });

@@ -8,6 +8,7 @@ export interface PanelUserRow {
   password_hash: string;
   role: PanelUserRole;
   is_active: boolean;
+  customer_id: string | null;
   created_at: string;
   updated_at: string;
   last_login_at: string | null;
@@ -19,6 +20,7 @@ export interface PanelUserPublic {
   username: string;
   role: PanelUserRole;
   is_active: boolean;
+  customer_id: string | null;
   created_at: string;
   last_login_at: string | null;
 }
@@ -28,6 +30,7 @@ export const toPublicPanelUser = (row: PanelUserRow): PanelUserPublic => ({
   username: row.username,
   role: row.role,
   is_active: row.is_active,
+  customer_id: row.customer_id != null ? String(row.customer_id) : null,
   created_at: row.created_at,
   last_login_at: row.last_login_at
 });
@@ -62,13 +65,13 @@ export const listPanelUsers = async (pool: Pool): Promise<PanelUserPublic[]> => 
 
 export const createPanelUser = async (
   pool: Pool,
-  input: { username: string; passwordHash: string; role: PanelUserRole }
+  input: { username: string; passwordHash: string; role: PanelUserRole; customerId?: string | null }
 ): Promise<PanelUserPublic> => {
   const res = await pool.query<PanelUserRow>(
-    `INSERT INTO panel_users (username, password_hash, role)
-     VALUES ($1, $2, $3)
+    `INSERT INTO panel_users (username, password_hash, role, customer_id)
+     VALUES ($1, $2, $3, $4)
      RETURNING *`,
-    [input.username, input.passwordHash, input.role]
+    [input.username, input.passwordHash, input.role, input.customerId ?? null]
   );
   return toPublicPanelUser(res.rows[0]!);
 };

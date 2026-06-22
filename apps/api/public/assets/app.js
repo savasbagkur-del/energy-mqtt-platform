@@ -88,6 +88,9 @@
     return new Date(iso).toLocaleDateString("tr-TR");
   }
   function fmtDateTime(iso) { return iso ? new Date(iso).toLocaleString("tr-TR") : "—"; }
+  function fmtDate(iso) {
+    return iso ? new Date(iso).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  }
   function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString("tr-TR") : "—"; }
 
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
@@ -1579,24 +1582,26 @@
         <div><h1>Müşteriler</h1><div class="sub">${nf(total)} müşteri · ${nf(panelCount)} panel · ${nf(apiCount)} API entegrasyonu</div></div>
         <div class="head-actions"><button class="btn primary" id="cuNew"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Yeni müşteri</button></div>
       </div>
-      <div class="panel"><div class="table-wrap"><table class="data">
+      <div class="panel"><div class="table-wrap"><table class="data cust-acct-table">
         <thead><tr>
-          <th>Müşteri</th><th>İletişim</th><th class="num">Sayaç</th><th class="num">Çevrimiçi</th>
-          <th>Bağlantı</th><th>Son API kullanımı</th><th></th>
+          <th>Müşteri</th><th>İletişim</th><th>Kullanıcı</th><th>Kayıt</th><th>Aktivasyon</th>
+          <th class="num">Sayaç</th><th class="num">Çevrimiçi</th><th>Bağlantı</th><th></th>
         </tr></thead>
         <tbody>${total ? items.map((c) => `
           <tr data-cust="${esc(c.id)}">
             <td><b>${esc(c.name)}</b></td>
-            <td class="muted">${esc(c.phone || c.email || "—")}</td>
+            <td class="mono">${esc(c.phone || "—")}</td>
+            <td class="mono">${esc(c.panel_username || "—")}</td>
+            <td class="muted">${fmtDate(c.created_at)}</td>
+            <td class="muted">${c.activated_at ? fmtDate(c.activated_at) : `<span class="pill off sm">bekliyor</span>`}</td>
             <td class="num">${nf(c.device_count)}</td>
             <td class="num">${c.device_count ? nf(c.online_count) : "—"}</td>
             <td>${connBadges(c)}</td>
-            <td class="muted">${c.last_api_used_at ? timeAgo(c.last_api_used_at) : "—"}</td>
             <td class="row-actions">
               <button class="btn sm" data-keys="${esc(c.id)}">API anahtarları${c.active_key_count ? ` (${nf(c.active_key_count)})` : ""}</button>
               <button class="btn sm ghost" data-devs="${esc(c.id)}" data-name="${esc(c.name)}">Cihazlar →</button>
             </td>
-          </tr>`).join("") : `<tr><td colspan="7" class="empty">Henüz müşteri yok. “Yeni müşteri” ile ekleyin.</td></tr>`}</tbody>
+          </tr>`).join("") : `<tr><td colspan="9" class="empty">Henüz müşteri yok. “Yeni müşteri” ile ekleyin.</td></tr>`}</tbody>
       </table></div></div>`;
 
     $("#cuNew").addEventListener("click", openCustomerModal);
@@ -1614,33 +1619,68 @@
 
   function openCustomerModal() {
     modalMount.innerHTML = `
-      <div class="modal-backdrop"><div class="modal">
-        <h3>Yeni müşteri</h3>
+      <div class="modal-backdrop"><div class="modal lg">
+        <h3>Yeni müşteri hesabı</h3>
+        <p class="muted" style="margin:0 0 14px">Zorunlu alanlar (*) ile işaretlidir. Kayıt tarihi otomatik atanır; aktivasyon tarihi ilk sayaç devreye girdiğinde oluşur.</p>
+        <div class="form-section-h">Müşteri bilgileri</div>
         <div class="form-grid">
-          <label>Ad / Unvan <input id="cuName" placeholder="Örn. Volt Enerji A.Ş." /></label>
-          <label>Telefon <input id="cuPhone" placeholder="(opsiyonel)" /></label>
-          <label>E-posta <input id="cuEmail" placeholder="(opsiyonel)" /></label>
-          <label class="check"><input type="checkbox" id="cuPanel" checked /> <span>Bizim paneli kullanır (Panel erişimi)</span></label>
+          <label class="full">Ad / Unvan *<input id="cuName" placeholder="Örn. Ahmet Yılmaz veya Volt Enerji A.Ş." autocomplete="off" /></label>
+          <label>İletişim numarası *<input id="cuPhone" type="tel" placeholder="05xx xxx xx xx" autocomplete="tel" /></label>
+          <label>E-posta <input id="cuEmail" type="email" placeholder="(opsiyonel)" autocomplete="email" /></label>
         </div>
-        <div class="modal-actions"><button class="btn" id="cuCancel">Vazgeç</button><button class="btn primary" id="cuSave">Kaydet</button></div>
+        <div class="form-section-h">Panel giriş hesabı</div>
+        <div class="form-grid">
+          <label class="check full"><input type="checkbox" id="cuPanel" checked /> <span>Müşteri panelden giriş yapacak</span></label>
+          <label>Kullanıcı adı *<input id="cuUser" placeholder="örn. ahmet.yilmaz" autocomplete="off" /></label>
+          <label>Parola *<input id="cuPass" type="password" placeholder="en az 8 karakter" autocomplete="new-password" /></label>
+          <label>Parola (tekrar) *<input id="cuPass2" type="password" autocomplete="new-password" /></label>
+        </div>
+        <div class="bl-hint">Kayıt tarihi: bugün · Aktivasyon: ilk sayaç aktif olunca otomatik</div>
+        <div class="modal-actions"><button class="btn" id="cuCancel">Vazgeç</button><button class="btn primary" id="cuSave">Hesabı oluştur</button></div>
       </div></div>`;
+    const panelCb = $("#cuPanel");
+    const panelFields = () => {
+      const on = panelCb.checked;
+      ["cuUser", "cuPass", "cuPass2"].forEach((id) => { const el = $("#" + id); if (el) el.closest("label").style.opacity = on ? "1" : ".45"; });
+    };
+    panelCb.addEventListener("change", panelFields);
+    panelFields();
     $("#cuCancel").addEventListener("click", closeModal);
     $("#cuSave").addEventListener("click", async () => {
       const name = $("#cuName").value.trim();
-      if (!name) { toast("Eksik", "Müşteri adı gerekli", "error"); return; }
+      const phone = $("#cuPhone").value.trim();
+      const panelOn = panelCb.checked;
+      const username = $("#cuUser").value.trim();
+      const pass = $("#cuPass").value;
+      const pass2 = $("#cuPass2").value;
+      if (!name) { toast("Eksik", "Ad / unvan zorunlu", "error"); return; }
+      if (!phone || phone.replace(/\D/g, "").length < 10) { toast("Eksik", "Geçerli iletişim numarası zorunlu", "error"); return; }
+      if (panelOn) {
+        if (!username || username.length < 3) { toast("Eksik", "Kullanıcı adı zorunlu (min 3 karakter)", "error"); return; }
+        if (pass.length < 8) { toast("Eksik", "Parola en az 8 karakter olmalı", "error"); return; }
+        if (pass !== pass2) { toast("Eksik", "Parolalar eşleşmiyor", "error"); return; }
+      }
       try {
-        const created = await api("POST", "/customers", {
+        await api("POST", "/customers", {
           name,
-          phone: $("#cuPhone").value.trim() || null,
-          email: $("#cuEmail").value.trim() || null
+          phone,
+          email: $("#cuEmail").value.trim() || null,
+          panelEnabled: panelOn,
+          username: panelOn ? username : undefined,
+          password: panelOn ? pass : undefined
         });
-        // panel_enabled toggle (create defaults true; only PATCH if user unchecked it)
-        if (!$("#cuPanel").checked && created && created.id) {
-          await api("PATCH", `/customers/${encodeURIComponent(created.id)}`, { panelEnabled: false }).catch(() => {});
-        }
-        toast("Müşteri eklendi", name, "success");
+        toast("Müşteri oluşturuldu", name, "success");
         closeModal(); renderCustomers();
-      } catch (e) { toast("Hata", e.message, "error"); }
+      } catch (e) {
+        const map = {
+          name_required: "Ad / unvan zorunlu.",
+          phone_required: "Geçerli iletişim numarası zorunlu.",
+          invalid_username: "Kullanıcı adı 3–32 karakter (harf, rakam, . _ -).",
+          weak_password: "Parola en az 8 karakter olmalı.",
+          username_taken: "Bu kullanıcı adı zaten kullanılıyor."
+        };
+        toast("Hata", map[e.message] || e.message, "error");
+      }
     });
   }
 

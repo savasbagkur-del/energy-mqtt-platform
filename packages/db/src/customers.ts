@@ -1,4 +1,5 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
+import type { PanelUserPublic } from "./panel-users.js";
 
 const int = (v: unknown): number => {
   const n = Number(v);
@@ -12,11 +13,14 @@ export interface CustomerOverviewRow {
   email: string | null;
   notes: string | null;
   panel_enabled: boolean;
+  panel_username: string | null;
   device_count: number;
   online_count: number;
   active_key_count: number;
   last_api_used_at: string | null;
   created_at: string;
+  /** Earliest commissioned_at among this customer's meters (first activation). */
+  activated_at: string | null;
 }
 
 /**
@@ -31,16 +35,19 @@ export const listCustomersOverview = async (
   const res = await pool.query(
     `SELECT
        c.id, c.name, c.phone, c.email, c.notes, c.panel_enabled, c.created_at,
+       MAX(pu.username) AS panel_username,
        COUNT(DISTINCT d.sn) AS device_count,
        COUNT(DISTINCT d.sn) FILTER (
          WHERE ls.last_seen_at >= NOW() - INTERVAL '${win} seconds'
        ) AS online_count,
        COUNT(DISTINCT k.id) FILTER (WHERE k.is_active) AS active_key_count,
-       MAX(k.last_used_at) AS last_api_used_at
+       MAX(k.last_used_at) AS last_api_used_at,
+       MIN(d.commissioned_at) FILTER (WHERE d.commissioned_at IS NOT NULL) AS activated_at
      FROM customers c
      LEFT JOIN devices d ON d.customer_id = c.id
      LEFT JOIN device_latest_state ls ON ls.sn = d.sn
      LEFT JOIN customer_api_keys k ON k.customer_id = c.id
+     LEFT JOIN panel_users pu ON pu.customer_id = c.id AND pu.is_active = TRUE
      GROUP BY c.id
      ORDER BY c.name ASC`
   );
@@ -51,11 +58,13 @@ export const listCustomersOverview = async (
     email: (r.email as string | null) ?? null,
     notes: (r.notes as string | null) ?? null,
     panel_enabled: r.panel_enabled === true,
+    panel_username: (r.panel_username as string | null) ?? null,
     device_count: int(r.device_count),
     online_count: int(r.online_count),
     active_key_count: int(r.active_key_count),
     last_api_used_at: (r.last_api_used_at as string | null) ?? null,
-    created_at: String(r.created_at)
+    created_at: String(r.created_at),
+    activated_at: (r.activated_at as string | null) ?? null
   }));
 };
 
@@ -66,7 +75,9 @@ export interface CustomerDetailRow {
   email: string | null;
   notes: string | null;
   panel_enabled: boolean;
+  panel_username: string | null;
   created_at: string;
+  activated_at: string | null;
 }
 
 const toCustomerDetail = (r: Record<string, unknown>): CustomerDetailRow => ({
@@ -76,8 +87,83 @@ const toCustomerDetail = (r: Record<string, unknown>): CustomerDetailRow => ({
   email: (r.email as string | null) ?? null,
   notes: (r.notes as string | null) ?? null,
   panel_enabled: r.panel_enabled === true,
-  created_at: String(r.created_at)
+  panel_username: (r.panel_username as string | null) ?? null,
+  created_at: String(r.created_at),
+  activated_at: (r.activated_at as string | null) ?? null
 });
+
+export interface CreateCustomerAccountInput {
+  name: string;
+  phone: string;
+  email?: string | null;
+  notes?: string | null;
+  username: string;
+  passwordHash: string;
+  panelEnabled?: boolean;
+}
+
+export interface CreateCustomerAccountResult {
+  customer: CustomerDetailRow;
+  panelUser: PanelUserPublic | null;
+}
+
+/** Creates customer + linked panel viewer account in one transaction. */
+export const createCustomerWithAccount = async (
+  pool: Pool,
+  input: CreateCustomerAccountInput
+): Promise<CreateCustomerAccountResult> => {
+  const client: PoolClient = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const panelOn = input.panelEnabled !== false;
+    const custRes = await client.query(
+      `INSERT INTO customers (name, phone, email, notes, panel_enabled)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, phone, email, notes, panel_enabled, created_at`,
+      [
+        input.name,
+        input.phone,
+        input.email ?? null,
+        input.notes ?? null,
+        panelOn
+      ]
+    );
+    const cust = custRes.rows[0]!;
+    const customerId = String(cust.id);
+    let panelUser: PanelUserPublic | null = null;
+    if (panelOn) {
+      const puRes = await client.query(
+        `INSERT INTO panel_users (username, password_hash, role, customer_id)
+         VALUES ($1, $2, 'viewer', $3)
+         RETURNING *`,
+        [input.username, input.passwordHash, customerId]
+      );
+      panelUser = {
+        id: String(puRes.rows[0]!.id),
+        username: String(puRes.rows[0]!.username),
+        role: "viewer",
+        is_active: true,
+        customer_id: customerId,
+        created_at: String(puRes.rows[0]!.created_at),
+        last_login_at: null
+      };
+    }
+    await client.query("COMMIT");
+    return {
+      customer: toCustomerDetail({
+        ...cust,
+        panel_username: panelUser?.username ?? null,
+        activated_at: null
+      }),
+      panelUser
+    };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+};
 
 export const updateCustomer = async (
   pool: Pool,
