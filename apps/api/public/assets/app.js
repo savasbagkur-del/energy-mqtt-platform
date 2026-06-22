@@ -1846,7 +1846,7 @@
 
   async function downloadCustomerImportTemplate() {
     try {
-      const blob = await api("GET", "/customers/import/template?v=3", undefined, { blob: true });
+      const blob = await api("GET", "/customers/import/template?v=4", undefined, { blob: true });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = "musteri-sayac-sablonu.xlsx";
@@ -1878,7 +1878,7 @@
     modalMount.innerHTML = `
       <div class="modal-backdrop"><div class="modal xl">
         <div class="modal-head"><h3>Toplu müşteri yükleme</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
-        <p class="muted">Tek sayfalık <strong>Kayıt Formu</strong>: üstte müşteri bilgileri, altta sayaç tablosu. İkinci müşteri için alttaki ikinci bloğu doldurun.</p>
+        <p class="muted">Tek sayfalık <strong>Kayıt Formu</strong>: üstte bir müşteri bilgileri, altta sayaç tablosu. Her yüklemede tek müşteri kaydedilir.</p>
         <div class="panel-inset import-help">
           <strong>Alanlar:</strong> Müşteri Adı · Telefon · Bağlantı Tipi (panel/api) · Giriş kullanıcı adı · E-posta · Parola · sayaç satırları (SN, daire, usage, not).
         </div>

@@ -3,8 +3,6 @@ import ExcelJS from "exceljs";
 const FORM_SHEET = "Kayıt Formu";
 
 const METER_ROWS = 55;
-const BLOCK_GAP = 4;
-const BLOCK_BODY = 8 + METER_ROWS;
 
 /** Eight columns in four equal pairs — matches müşteri bilgileri grid (A–B | C–D | E–F | G–H). */
 const FORM_COL_WIDTHS = [14, 14, 14, 14, 14, 14, 14, 14];
@@ -278,7 +276,7 @@ const writeDocumentHeader = (ws: ExcelJS.Worksheet) => {
 
 const applyFormLayout = (ws: ExcelJS.Worksheet) => {
   FORM_COL_WIDTHS.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
-  ws.pageSetup = { orientation: "portrait", printArea: "A1:H250" };
+  ws.pageSetup = { orientation: "portrait", printArea: `A1:H${5 + 8 + METER_ROWS}` };
 };
 
 /** Quotation-style form: customer details on top, meter table below. */
@@ -294,14 +292,6 @@ export const buildCustomerImportTemplate = async (): Promise<Buffer> => {
   applyFormLayout(ws);
   writeDocumentHeader(ws);
   writeCustomerBlock(ws, 5, 1);
-  writeCustomerBlock(ws, 5 + BLOCK_BODY + BLOCK_GAP, 2);
-
-  ws.mergeCells(5 + BLOCK_BODY * 2 + BLOCK_GAP + 2, 1, 5 + BLOCK_BODY * 2 + BLOCK_GAP + 2, 8);
-  const hint = ws.getCell(5 + BLOCK_BODY * 2 + BLOCK_GAP + 2, 1);
-  hint.value =
-    "İpucu: İkinci müşteri için yukarıdaki ikinci bloğu kullanın. Daha fazla müşteri için bloğu kopyalayın.";
-  hint.font = { name: "Calibri", size: 10, italic: true, color: { argb: "FF64748B" } };
-  hint.alignment = { wrapText: true, vertical: "middle" };
 
   return Buffer.from(await wb.xlsx.writeBuffer());
 };
