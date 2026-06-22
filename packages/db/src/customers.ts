@@ -173,7 +173,7 @@ const toCustomerDetail = (r: Record<string, unknown>): CustomerDetailRow => ({
 export interface CustomerOnboardMeter {
   sn: string;
   unitNo?: string | null;
-  meterUsage?: "prepaid" | "postpaid";
+  meterUsage?: "prepaid" | "analysis";
 }
 
 export interface CreateCustomerAccountInput {
@@ -249,7 +249,7 @@ export const createCustomerWithAccount = async (
         customerId,
         unitNo,
         label: unitNo,
-        meterUsage: m.meterUsage === "postpaid" ? "postpaid" : "prepaid"
+        meterUsage: m.meterUsage === "analysis" ? "analysis" : "prepaid"
       });
       metersRegistered += 1;
     }

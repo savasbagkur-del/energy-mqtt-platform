@@ -4,8 +4,8 @@ const FORM_SHEET = "Kayıt Formu";
 
 const METER_ROWS = 55;
 
-/** Eight columns in four equal pairs — matches müşteri bilgileri grid (A–B | C–D | E–F | G–H). */
-const FORM_COL_WIDTHS = [14, 14, 14, 14, 14, 14, 14, 14];
+/** # narrow · SN / daire / not wider — customer grid still A–H. */
+const FORM_COL_WIDTHS = [4, 16, 16, 16, 15, 15, 11, 19];
 
 export const IMPORT_COLUMNS: Array<{
   key: string;
@@ -80,14 +80,13 @@ const CUSTOMER_OFFSET = {
   meterDataStart: { r: 9, c: 1 }
 };
 
-const METER_COL = { no: 1, sn: 3, unit: 5, usage: 7, note: 8 };
+const METER_COL = { no: 1, sn: 2, unit: 5, usage: 7, note: 8 };
 
-/** Meter table uses the same 2-column blocks as customer fields (full A–H width). */
 const METER_SPANS: Array<{ key: keyof typeof METER_COL; label: string; c1: number; c2: number; text?: boolean }> = [
-  { key: "no", label: "#", c1: 1, c2: 2 },
-  { key: "sn", label: "Sayaç Seri No", c1: 3, c2: 4, text: true },
+  { key: "no", label: "#", c1: 1, c2: 1 },
+  { key: "sn", label: "Sayaç Seri No", c1: 2, c2: 4, text: true },
   { key: "unit", label: "Daire / Dükkan", c1: 5, c2: 6 },
-  { key: "usage", label: "Usage", c1: 7, c2: 7 },
+  { key: "usage", label: "Usage\n(prepaid / Analiz)", c1: 7, c2: 7 },
   { key: "note", label: "Sayaç Notu", c1: 8, c2: 8 }
 ];
 
@@ -208,7 +207,6 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
     ws.getRow(r).height = 21;
     const zebra = i % 2 === 0 ? "FFFFFFFF" : C.zebra;
 
-    ws.mergeCells(r, 1, r, 2);
     const noCell = ws.getCell(r, 1);
     noCell.value = i + 1;
     noCell.font = { name: "Calibri", size: 10, color: { argb: "FF64748B" } };
@@ -226,10 +224,10 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
         cell.dataValidation = {
           type: "list",
           allowBlank: true,
-          formulae: ['"prepaid,postpaid"'],
+          formulae: ['"prepaid,Analiz"'],
           showErrorMessage: true,
           errorTitle: "Geçersiz",
-          error: "prepaid veya postpaid"
+          error: "prepaid veya Analiz"
         };
       }
     });

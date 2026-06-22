@@ -1388,10 +1388,10 @@ app.post("/customers", requireAdmin, async (req, res) => {
   const integrationMode = integrationRaw === "api" ? "api" : "panel";
   const panelEnabled = integrationMode === "panel" && body.panelEnabled !== false && body.panel_enabled !== false;
 
-  const parseMeters = (): Array<{ sn: string; unitNo: string | null; meterUsage: "prepaid" | "postpaid" }> => {
+  const parseMeters = (): Array<{ sn: string; unitNo: string | null; meterUsage: "prepaid" | "analysis" }> => {
     const raw = body.meters;
     if (!Array.isArray(raw)) return [];
-    const out: Array<{ sn: string; unitNo: string | null; meterUsage: "prepaid" | "postpaid" }> = [];
+    const out: Array<{ sn: string; unitNo: string | null; meterUsage: "prepaid" | "analysis" }> = [];
     const seen = new Set<string>();
     for (const row of raw) {
       if (!row || typeof row !== "object") continue;
@@ -1407,7 +1407,9 @@ app.post("/customers", requireAdmin, async (req, res) => {
         : typeof o.unit_no === "string" ? o.unit_no.trim() || null : null;
       const usageRaw = typeof o.meterUsage === "string" ? o.meterUsage.trim().toLowerCase()
         : typeof o.meter_usage === "string" ? o.meter_usage.trim().toLowerCase() : "prepaid";
-      const meterUsage = usageRaw === "postpaid" ? "postpaid" : "prepaid";
+      const meterUsage = (usageRaw === "analiz" || usageRaw === "analysis" || usageRaw === "postpaid")
+        ? "analysis" as const
+        : "prepaid" as const;
       out.push({ sn, unitNo, meterUsage });
     }
     return out;
@@ -1809,7 +1811,8 @@ const toMetadataInput = (
     meterUsage: (() => {
       const u = str("meterUsage") ?? str("meter_usage");
       if (u === undefined || u === null) return null;
-      return u.toLowerCase() === "postpaid" ? "postpaid" as const : "prepaid" as const;
+      const t = u.toLowerCase();
+      return (t === "analiz" || t === "analysis" || t === "postpaid") ? "analysis" as const : "prepaid" as const;
     })()
   };
 };

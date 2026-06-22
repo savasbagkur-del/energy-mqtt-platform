@@ -1680,7 +1680,7 @@
     return out.join("");
   }
 
-  const METER_USAGE_LABEL = { prepaid: "Prepaid", postpaid: "Postpaid" };
+  const METER_USAGE_LABEL = { prepaid: "Prepaid", analysis: "Analiz", postpaid: "Analiz" };
 
   async function renderCustomers(silent) {
     let res;
@@ -1846,7 +1846,7 @@
 
   async function downloadCustomerImportTemplate() {
     try {
-      const blob = await api("GET", "/customers/import/template?v=4", undefined, { blob: true });
+      const blob = await api("GET", "/customers/import/template?v=5", undefined, { blob: true });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = "musteri-sayac-sablonu.xlsx";
@@ -1880,7 +1880,7 @@
         <div class="modal-head"><h3>Toplu müşteri yükleme</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
         <p class="muted">Tek sayfalık <strong>Kayıt Formu</strong>: üstte bir müşteri bilgileri, altta sayaç tablosu. Her yüklemede tek müşteri kaydedilir.</p>
         <div class="panel-inset import-help">
-          <strong>Alanlar:</strong> Müşteri Adı · Telefon · Bağlantı Tipi (panel/api) · Giriş kullanıcı adı · E-posta · Parola · sayaç satırları (SN, daire, usage, not).
+          <strong>Alanlar:</strong> Müşteri Adı · Telefon · Bağlantı Tipi (panel/api) · Giriş kullanıcı adı · E-posta · Parola · sayaç satırları (SN, daire, usage: prepaid/Analiz, not).
         </div>
         <div class="form-grid two" style="margin-bottom:12px">
           <label>Dosya<input type="file" id="ciFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>
@@ -2053,7 +2053,7 @@
       <div class="meter-onboard-row">
         <label class="sn-field">Seri no${snSearchFieldHtml({ inputClass: "m-sn", placeholder: "SN veya son 2 hane" })}</label>
         <label>Daire / dükkan no<input class="m-unit" placeholder="Örn. A-12" autocomplete="off" /></label>
-        <label>Usage<select class="m-usage"><option value="prepaid" selected>Prepaid</option><option value="postpaid">Postpaid</option></select></label>
+        <label>Usage<select class="m-usage"><option value="prepaid" selected>Prepaid</option><option value="analysis">Analiz</option></select></label>
         <button type="button" class="btn sm ghost m-remove" title="Satırı kaldır">✕</button>
       </div>`;
     modalMount.innerHTML = `

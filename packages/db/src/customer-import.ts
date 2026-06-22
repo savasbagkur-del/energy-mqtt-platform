@@ -29,7 +29,7 @@ export interface ParsedCustomerImportMeter {
   rowNum: number;
   sn: string;
   unitNo: string | null;
-  meterUsage: "prepaid" | "postpaid";
+  meterUsage: MeterUsage;
 }
 
 export interface ParsedCustomerImportGroup {
@@ -94,7 +94,7 @@ export interface CustomerImportConfirmCustomer {
   meters: Array<{
     sn: string;
     unitNo?: string | null;
-    meterUsage?: "prepaid" | "postpaid";
+    meterUsage?: MeterUsage;
     linkQuarantine?: boolean;
     quarantineSn?: string | null;
   }>;
@@ -114,8 +114,13 @@ const normalizeIntegration = (raw: string): "panel" | "api" => {
   return "panel";
 };
 
-const normalizeUsage = (raw: string): "prepaid" | "postpaid" =>
-  raw.trim().toLowerCase() === "postpaid" ? "postpaid" : "prepaid";
+export type MeterUsage = "prepaid" | "analysis";
+
+const normalizeUsage = (raw: string): MeterUsage => {
+  const t = raw.trim().toLowerCase();
+  if (t === "analiz" || t === "analysis" || t === "postpaid") return "analysis";
+  return "prepaid";
+};
 
 export const parseCustomerImportRows = (
   rows: Array<Record<string, string>>
@@ -302,7 +307,7 @@ export const applyCustomerImport = async (
         metersInput.push({
           sn: registerSn,
           unitNo: m.unitNo?.trim() || null,
-          meterUsage: m.meterUsage === "postpaid" ? "postpaid" : "prepaid"
+          meterUsage: m.meterUsage === "analysis" ? "analysis" : "prepaid"
         });
       }
 
@@ -396,7 +401,7 @@ export const linkCustomerQuarantineMeters = async (
         customerId,
         unitNo: meta.unit_no,
         label: meta.unit_no,
-        meterUsage: meta.meter_usage === "postpaid" ? "postpaid" : "prepaid"
+        meterUsage: meta.meter_usage === "analysis" ? "analysis" : "prepaid"
       });
       if (link.expectedSn !== link.quarantineSn) {
         await pool.query(

@@ -82,8 +82,8 @@ export interface DeviceMetadataInput {
   siteName?: string | null;
   /** Flat / room / shop identifier shown on customer onboarding. */
   unitNo?: string | null;
-  /** Billing usage model: prepaid (default) or postpaid. */
-  meterUsage?: "prepaid" | "postpaid" | null;
+  /** Billing usage model: prepaid (default) or analysis (Analiz). */
+  meterUsage?: "prepaid" | "analysis" | null;
 }
 
 const REGISTRY_SELECT = `
