@@ -707,10 +707,13 @@
 
   async function renderOverview(silent) {
     if (!silent) view.innerHTML = overviewSkeleton();
-    let ov, cmdAlarms, tree, models, bill, billAlloc, billAws;
+    let ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc, billAws;
     try {
-      [ov, cmdAlarms, tree, models, bill, billAlloc, billAws] = await Promise.all([
+      [ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc, billAws] = await Promise.all([
         api("GET", `/fleet/overview?window=${state.settings.onlineWindowSec}`),
+        api("GET", `/fleet/devices?online=false&limit=6&window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
+        api("GET", `/fleet/devices?alarm=true&limit=6`).catch(() => ({ items: [] })),
+        api("GET", `/fleet/devices?owing=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/alarms?status=open&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/fleet/hierarchy?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/models`).catch(() => ({ items: [] })),
@@ -721,6 +724,38 @@
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
     state.lastOverview = ov;
     setAlarmBadge((cmdAlarms.items || []).length + ov.alarms + ov.owing);
+
+    const ICO = {
+      alarm: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 9v4m0 4h.01M10.3 4.3 2.4 18a1 1 0 0 0 .9 1.5h17.4a1 1 0 0 0 .9-1.5L13.7 4.3a1 1 0 0 0-1.7 0Z"/></svg>`,
+      money: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 2v20M16 6.5C16 5 14.2 4 12 4S8 5 8 6.7s1.8 2.3 4 2.8 4 1.3 4 3-1.8 2.7-4 2.7-4-1-4-2.5"/></svg>`,
+      offline: `<svg viewBox="0 0 24 24" class="ic"><path d="M18.4 5.6 5.6 18.4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/></svg>`
+    };
+    // attention list (dedup by sn, severity-ordered; command alarms take precedence)
+    const att = new Map();
+    (cmdAlarms.items || []).forEach((a) => att.set(a.sn, {
+      d: { sn: a.sn, label: a.label, customer_name: a.customer_name, last_seen_at: a.raised_at },
+      sev: "bad",
+      reason: alarmTypeLabel(a.alarm_type)
+    }));
+    (alarms.items || []).forEach((d) => { if (!att.has(d.sn)) att.set(d.sn, { d, sev: "bad", reason: "Alarm bayrağı" }); });
+    (owing.items || []).forEach((d) => { if (!att.has(d.sn)) att.set(d.sn, { d, sev: "warn", reason: "Bakiye borçlu" }); });
+    (offline.items || []).forEach((d) => { if (!att.has(d.sn) && d.registry_status !== "quarantined") att.set(d.sn, { d, sev: "info", reason: "Çevrimdışı" }); });
+    const attArr = Array.from(att.values()).slice(0, 8);
+    const sevTag = { bad: "Alarm", warn: "Uyarı", info: "Bilgi" };
+    const attHtml = attArr.length ? `<div class="alarm-list">${attArr.map((a) => `
+      <div class="alarm-item sev-${a.sev}" data-sn="${esc(a.d.sn)}">
+        <div class="a-ic">${a.sev === "bad" ? ICO.alarm : a.sev === "warn" ? ICO.money : ICO.offline}</div>
+        <div class="a-main">
+          <div class="a-title">${esc(a.d.label || a.d.sn)}</div>
+          <div class="a-sub"><span class="a-tag sev-${a.sev}">${sevTag[a.sev] || "Bilgi"}</span><span class="a-reason">${esc(a.reason)}</span> · <span class="mono">${esc(a.d.sn)}</span>${a.d.city ? " · " + esc(a.d.city) : ""}</div>
+        </div>
+        <div class="a-time">${timeAgo(a.d.last_seen_at)}</div>
+      </div>`).join("")}</div>` : `<div class="alarm-empty"><div class="ae-ic">✓</div><div class="ae-txt"><b>Her şey yolunda</b><span>Dikkat gerektiren sayaç yok.</span></div></div>`;
+    const alarmsHtml = `
+      <div class="panel">
+        <div class="panel-head"><h2>Alarm ve Uyarılar</h2><div class="panel-actions">${attArr.length ? `<span class="pill ${attArr.some((a) => a.sev === "bad") ? "warn" : "on"}"><span class="pdot"></span>${nf(attArr.length)}</span>` : ""}<button class="btn sm ghost" data-go="alarms">Tümü →</button></div></div>
+        <div>${attHtml}</div>
+      </div>`;
 
     // Customers as a clean table; the flow chart for each customer opens in a modal (keeps the page
     // tidy even with many customers). Data feeds the per-row "diagram" action.
@@ -846,8 +881,10 @@
       <div class="page-head">
         <div><h1>Genel Bakış</h1></div>
       </div>
-      ${costMixHtml ? `<div class="grid-2">${mixHtml}${costMixHtml}</div>` : mixHtml}
-      ${projHtml}`;
+      <div class="grid-2 ov-cols">
+        <div class="ov-col">${mixHtml}${projHtml}</div>
+        <div class="ov-col">${costMixHtml || ""}${alarmsHtml}</div>
+      </div>`;
 
     wireDonut(view);
     $$("[data-sn]", view).forEach((el) => el.addEventListener("click", () => navigate(`#/device/${encodeURIComponent(el.dataset.sn)}`)));
