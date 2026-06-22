@@ -643,6 +643,11 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .doton { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--on); margin-left: 8px; vertical-align: middle; box-shadow: 0 0 0 3px color-mix(in srgb, var(--on) 22%, transparent); }
 .pill.sm { font-size: 11px; padding: 2px 8px; }
 
+/* overview: payment-forecast delta badge */
+.cost-delta { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 999px; }
+.cost-delta.up { color: #b2560b; background: color-mix(in srgb, var(--warn) 18%, var(--panel)); }
+.cost-delta.down { color: var(--on); background: color-mix(in srgb, var(--on) 14%, var(--panel)); }
+
 /* overview: cost summary panel */
 .cost-panel { margin-bottom: 18px; }
 .cost-body { display: flex; flex-direction: column; gap: 16px; padding: 16px 18px; }

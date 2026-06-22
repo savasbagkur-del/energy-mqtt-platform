@@ -390,10 +390,31 @@
     </svg>`;
   }
 
+  // A single-ring donut for monetary segments (e.g. last month vs this-month forecast). Slices carry a
+  // pre-formatted `display` string so the shared tooltip can show currency rather than a raw count.
+  function donutMoney(segs, centerText, centerSub) {
+    const cx = 90, cy = 90, r = 62, w = 21;
+    const c = 2 * Math.PI * r;
+    const sum = segs.reduce((a, s) => a + (s.value || 0), 0);
+    let off = 0, arcs = "";
+    segs.forEach((s) => {
+      const len = sum > 0 ? ((s.value || 0) / sum) * c : 0;
+      if (len <= 0) return;
+      const p = sum ? Math.round(((s.value || 0) / sum) * 100) : 0;
+      arcs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${w}" stroke-dasharray="${len.toFixed(2)} ${(c - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" data-label="${esc(s.label)}" data-ring="${esc(s.ring || "Ödeme")}" data-value="${esc(s.display || "")}" data-pct="${p}" data-color="${esc(s.color)}"></circle>`;
+      off += len;
+    });
+    return `<svg class="mix-donut" viewBox="0 0 180 180" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--panel-3)" stroke-width="${w}"/>
+      ${arcs || ""}
+      <text class="donut-cv" x="${cx}" y="${cy - 1}" text-anchor="middle" fill="var(--txt)" font-size="23" font-weight="800">${esc(centerText)}</text>
+      <text class="donut-cl" x="${cx}" y="${cy + 18}" text-anchor="middle" fill="var(--muted)" font-size="11">${esc(centerSub)}</text>
+    </svg>`;
+  }
+
   function wireDonut(root) {
-    const svg = root.querySelector(".mix-donut");
-    if (!svg) return;
-    const segs = Array.from(svg.querySelectorAll(".donut-seg"));
+    const svgs = Array.from(root.querySelectorAll(".mix-donut"));
+    if (!svgs.length) return;
     let tip = document.getElementById("donutTip");
     if (!tip) {
       tip = document.createElement("div");
@@ -401,7 +422,6 @@
       tip.className = "donut-tip";
       document.body.appendChild(tip);
     }
-    const hide = () => { tip.style.display = "none"; segs.forEach((s) => s.classList.remove("dim", "hot")); };
     const place = (e) => {
       const pad = 16;
       let x = e.clientX + 16, y = e.clientY + 16;
@@ -411,16 +431,20 @@
       tip.style.left = `${Math.max(pad, x)}px`;
       tip.style.top = `${Math.max(pad, y)}px`;
     };
-    segs.forEach((seg) => {
-      seg.addEventListener("mouseenter", () => {
-        tip.innerHTML = `<span class="dt-dot" style="background:${seg.dataset.color}"></span>`
-          + `<span class="dt-l">${esc(seg.dataset.ring)} · ${esc(seg.dataset.label)}</span>`
-          + `<b>${esc(seg.dataset.value)}</b><span class="dt-p">%${esc(seg.dataset.pct)}</span>`;
-        tip.style.display = "flex";
-        segs.forEach((s) => { s.classList.toggle("hot", s === seg); s.classList.toggle("dim", s !== seg); });
+    svgs.forEach((svg) => {
+      const segs = Array.from(svg.querySelectorAll(".donut-seg"));
+      const hide = () => { tip.style.display = "none"; segs.forEach((s) => s.classList.remove("dim", "hot")); };
+      segs.forEach((seg) => {
+        seg.addEventListener("mouseenter", () => {
+          tip.innerHTML = `<span class="dt-dot" style="background:${seg.dataset.color}"></span>`
+            + `<span class="dt-l">${esc(seg.dataset.ring)} · ${esc(seg.dataset.label)}</span>`
+            + `<b>${esc(seg.dataset.value)}</b><span class="dt-p">%${esc(seg.dataset.pct)}</span>`;
+          tip.style.display = "flex";
+          segs.forEach((s) => { s.classList.toggle("hot", s === seg); s.classList.toggle("dim", s !== seg); });
+        });
+        seg.addEventListener("mousemove", place);
+        seg.addEventListener("mouseleave", hide);
       });
-      seg.addEventListener("mousemove", place);
-      seg.addEventListener("mouseleave", hide);
     });
   }
 
@@ -683,13 +707,10 @@
 
   async function renderOverview(silent) {
     if (!silent) view.innerHTML = overviewSkeleton();
-    let ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc, billAws;
+    let ov, cmdAlarms, tree, models, bill, billAlloc, billAws;
     try {
-      [ov, offline, alarms, owing, cmdAlarms, tree, models, bill, billAlloc, billAws] = await Promise.all([
+      [ov, cmdAlarms, tree, models, bill, billAlloc, billAws] = await Promise.all([
         api("GET", `/fleet/overview?window=${state.settings.onlineWindowSec}`),
-        api("GET", `/fleet/devices?online=false&limit=6&window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
-        api("GET", `/fleet/devices?alarm=true&limit=6`).catch(() => ({ items: [] })),
-        api("GET", `/fleet/devices?owing=true&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/alarms?status=open&limit=6`).catch(() => ({ items: [] })),
         api("GET", `/fleet/hierarchy?window=${state.settings.onlineWindowSec}`).catch(() => ({ items: [] })),
         api("GET", `/fleet/models`).catch(() => ({ items: [] })),
@@ -701,16 +722,6 @@
     state.lastOverview = ov;
     setAlarmBadge((cmdAlarms.items || []).length + ov.alarms + ov.owing);
 
-    const ICO = {
-      meter: `<svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="9"/><path d="M12 12 8 8"/></svg>`,
-      online: `<svg viewBox="0 0 24 24" class="ic"><path d="M5 12.5 9 16l10-9"/></svg>`,
-      offline: `<svg viewBox="0 0 24 24" class="ic"><path d="M18.4 5.6 5.6 18.4M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z"/></svg>`,
-      bolt: `<svg viewBox="0 0 24 24" class="ic"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>`,
-      energy: `<svg viewBox="0 0 24 24" class="ic"><path d="M3 17l5-6 4 3 5-7M3 21h18"/></svg>`,
-      alarm: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 9v4m0 4h.01M10.3 4.3 2.4 18a1 1 0 0 0 .9 1.5h17.4a1 1 0 0 0 .9-1.5L13.7 4.3a1 1 0 0 0-1.7 0Z"/></svg>`,
-      money: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 2v20M16 6.5C16 5 14.2 4 12 4S8 5 8 6.7s1.8 2.3 4 2.8 4 1.3 4 3-1.8 2.7-4 2.7-4-1-4-2.5"/></svg>`,
-      shield: `<svg viewBox="0 0 24 24" class="ic"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3Z"/></svg>`
-    };
     // Customers as a clean table; the flow chart for each customer opens in a modal (keeps the page
     // tidy even with many customers). Data feeds the per-row "diagram" action.
     const custItems = (tree && tree.items) || [];
@@ -749,28 +760,6 @@
         </table></div>` : `<div class="empty" style="padding:24px">Henüz müşteriye atanmış cihaz yok.</div>`}</div>
       </div>`;
 
-    // attention list (dedup by sn, severity-ordered; command alarms take precedence)
-    const att = new Map();
-    (cmdAlarms.items || []).forEach((a) => att.set(a.sn, {
-      d: { sn: a.sn, label: a.label, customer_name: a.customer_name, last_seen_at: a.raised_at },
-      sev: "bad",
-      reason: alarmTypeLabel(a.alarm_type)
-    }));
-    (alarms.items || []).forEach((d) => { if (!att.has(d.sn)) att.set(d.sn, { d, sev: "bad", reason: "Alarm bayrağı" }); });
-    (owing.items || []).forEach((d) => { if (!att.has(d.sn)) att.set(d.sn, { d, sev: "warn", reason: "Bakiye borçlu" }); });
-    (offline.items || []).forEach((d) => { if (!att.has(d.sn) && d.registry_status !== "quarantined") att.set(d.sn, { d, sev: "info", reason: "Çevrimdışı" }); });
-    const attArr = Array.from(att.values()).slice(0, 8);
-    const sevTag = { bad: "Alarm", warn: "Uyarı", info: "Bilgi" };
-    const attHtml = attArr.length ? `<div class="alarm-list">${attArr.map((a) => `
-      <div class="alarm-item sev-${a.sev}" data-sn="${esc(a.d.sn)}">
-        <div class="a-ic">${a.sev === "bad" ? ICO.alarm : a.sev === "warn" ? ICO.money : ICO.offline}</div>
-        <div class="a-main">
-          <div class="a-title">${esc(a.d.label || a.d.sn)}</div>
-          <div class="a-sub"><span class="a-tag sev-${a.sev}">${sevTag[a.sev] || "Bilgi"}</span><span class="a-reason">${esc(a.reason)}</span> · <span class="mono">${esc(a.d.sn)}</span>${a.d.city ? " · " + esc(a.d.city) : ""}</div>
-        </div>
-        <div class="a-time">${timeAgo(a.d.last_seen_at)}</div>
-      </div>`).join("")}</div>` : `<div class="alarm-empty"><div class="ae-ic">✓</div><div class="ae-txt"><b>Her şey yolunda</b><span>Dikkat gerektiren sayaç yok.</span></div></div>`;
-
     // Device-mix donut: inner ring = status, outer ring = device type (model).
     const MODEL_COLORS = ["#3FA7A0", "#546E7A", "#6CA8D6", "#7FB77E", "#E0A84E", "#C94B4B", "#8E7CC3", "#5C8A8A", "#B5894E"];
     const statusSegs = [
@@ -797,63 +786,58 @@
         </div>
       </div>`;
 
-    // Cost summary (admin only): allocates the shared monthly bill across customers by device share.
-    let costHtml = "";
-    if (isAdmin() && bill && billAlloc) {
+    // Payment-forecast donut (admin only): last month actual vs this month estimate (AWS Cost Explorer).
+    let costMixHtml = "";
+    if (isAdmin() && bill) {
       state.settings.billing = Object.assign({}, state.settings.billing, bill); saveSettings();
       const cMargin = Number(bill.marginPct) || 0;
       const cManual = Number(bill.monthlyCost) || 0;
-      // Resolve the same cost basis as the billing page (Şu an ödenecek / Bu ay tahmini / Elle).
       const cMtd = billAws ? Number(billAws.monthToDate) || 0 : null;
       const cForecast = billAws && billAws.forecastMonthEnd != null ? Number(billAws.forecastMonthEnd) : null;
-      let cBasis = bill.costBasis || "manual";
-      if ((cBasis === "actual" && cMtd == null) || (cBasis === "forecast" && cForecast == null)) cBasis = "manual";
-      const cCost = cBasis === "actual" ? (cMtd ?? cManual) : cBasis === "forecast" ? (cForecast ?? cManual) : cManual;
-      const cBasisLabel = { manual: "elle tanımlı", actual: "şu an ödenecek (AWS)", forecast: "bu ay tahmini (AWS)" }[cBasis];
-      const cTotalDev = billAlloc.totalDevices || 0;
-      const cCharge = cCost * (1 + cMargin / 100);
-      const perDev = cTotalDev > 0 ? cCharge / cTotalDev : 0;
-      const byCust = new Map();
-      (billAlloc.items || []).forEach((it) => {
-        const name = (it.customerName && String(it.customerName).trim()) ? it.customerName : "Atanmamış müşteri";
-        byCust.set(name, (byCust.get(name) || 0) + (it.devices || 0));
-      });
-      const custArr = Array.from(byCust.entries())
-        .map(([name, dev]) => ({ name, dev, charge: cTotalDev > 0 ? cCharge * (dev / cTotalDev) : 0 }))
-        .sort((a, b) => b.dev - a.dev);
-      const maxDev = custArr.length ? custArr[0].dev : 0;
-      const topCust = custArr.slice(0, 5);
-      const topRows = topCust.map((c) => `
-        <div class="ct-row">
-          <div class="ct-name" title="${esc(c.name)}">${esc(c.name)}</div>
-          <div class="ct-bar"><span style="width:${maxDev > 0 ? Math.max(6, Math.round((c.dev / maxDev) * 100)) : 0}%"></span></div>
-          <div class="ct-dev">${nf(c.dev)} cihaz</div>
-          <div class="ct-amt">${money(c.charge)}</div>
-        </div>`).join("");
-      costHtml = `
-      <div class="panel cost-panel">
-        <div class="panel-head"><h2>Maliyet Özeti</h2><div class="panel-actions">
-          <span class="panel-note">${cBasisLabel}${cMargin ? ` · marj %${nf(cMargin)}` : ""}</span>
-          <button class="btn sm ghost" data-go="billing">Detay →</button>
-        </div></div>
-        <div class="panel-pad cost-body">
-          <div class="cost-hero">
-            <div class="ch-glow"></div>
-            <div class="ch-main">
-              <div class="ch-label">Toplam aylık talep</div>
-              <div class="ch-val">${money(cCharge)}</div>
-              <div class="ch-sub">${cBasisLabel.charAt(0).toUpperCase() + cBasisLabel.slice(1)} ${money(cCost)}${cMargin ? ` · +%${nf(cMargin)} marj` : ""}</div>
-            </div>
-            <div class="ch-tiles">
-              <div class="ch-tile"><span>Cihaz başı / ay</span><b>${money(perDev)}</b></div>
-              <div class="ch-tile"><span>Faturalanan cihaz</span><b>${nf(cTotalDev)}</b></div>
-              <div class="ch-tile"><span>Müşteri</span><b>${nf(byCust.size)}</b></div>
+      const cLast = billAws ? Number(billAws.lastMonth) || 0 : null;
+      // "Bu ay tahmini ödenecek": forecast if available, else month-to-date, else manual estimate.
+      const cThis = cForecast != null ? cForecast : (cMtd != null ? cMtd : cManual);
+      const cLastVal = cLast != null ? cLast : 0;
+      const C_LAST = "#6CA8D6";
+      const segs = [
+        { label: "Bu ay (tahmini)", ring: "Ödeme", value: cThis, display: money(cThis), color: "var(--brand)" },
+        { label: "Geçen ay", ring: "Ödeme", value: cLastVal, display: money(cLastVal), color: C_LAST }
+      ];
+      const sumSeg = cThis + cLastVal;
+      let deltaHtml = "";
+      if (cLast != null) {
+        if (cLastVal > 0) {
+          const dp = ((cThis - cLastVal) / cLastVal) * 100;
+          const up = dp >= 0;
+          deltaHtml = `<span class="cost-delta ${up ? "up" : "down"}" title="geçen aya göre">${up ? "▲" : "▼"} %${nf(Math.abs(dp), 0)}</span>`;
+        } else if (cThis > 0) {
+          deltaHtml = `<span class="cost-delta up" title="geçen ay maliyet yok">yeni</span>`;
+        }
+      }
+      const charge = cThis * (1 + cMargin / 100);
+      const totalDev = (billAlloc && billAlloc.totalDevices) || ov.managed || 0;
+      const legendRow = (s, note) => `<div class="dl"><i style="background:${s.color}"></i>${esc(s.label)}<b>${money(s.value)}<span class="dl-pct muted">${esc(note)}</span></b></div>`;
+      costMixHtml = `
+      <div class="panel">
+        <div class="panel-head"><h2>Ödeme Tahmini</h2><div class="panel-actions">${deltaHtml}<button class="btn sm ghost" data-go="billing">Detay →</button></div></div>
+        <div class="panel-pad mix-pad">
+          <div class="mix-wrap">
+            <div class="mix-donut-wrap">${donutMoney(segs, sumSeg > 0 ? money(cThis) : money(0), "bu ay tahmini")}</div>
+            <div class="mix-legends">
+              <div class="mix-col">
+                <div class="dl-group">Ödenecek (AWS)</div>
+                ${legendRow(segs[0], "tahmini")}
+                ${legendRow(segs[1], "gerçekleşen")}
+                ${cMtd != null ? `<div class="dl"><i style="background:var(--on)"></i>Şu an ödenecek<b>${money(cMtd)}<span class="dl-pct muted">bugüne</span></b></div>` : ""}
+              </div>
+              <div class="mix-col">
+                <div class="dl-group">Müşteriye talep</div>
+                <div class="dl"><i style="background:var(--warn)"></i>Toplam${cMargin ? ` (marj %${nf(cMargin)})` : ""}<b>${money(charge)}</b></div>
+                <div class="dl"><i style="background:var(--muted)"></i>Cihaz başı<b>${money(totalDev > 0 ? charge / totalDev : 0)}</b></div>
+              </div>
             </div>
           </div>
-          ${topCust.length ? `<div class="cost-top">
-            <div class="ct-head">Müşteriye göre dağılım <span class="muted">(en yüksek ${nf(topCust.length)})</span></div>
-            ${topRows}
-          </div>` : ""}
+          ${billAws ? "" : `<div class="bl-hint" style="margin:8px 0 0">AWS yapılandırılmamış — "Elle" maliyet gösteriliyor.</div>`}
         </div>
       </div>`;
     }
@@ -862,14 +846,7 @@
       <div class="page-head">
         <div><h1>Genel Bakış</h1></div>
       </div>
-      <div class="grid-2">
-        ${mixHtml}
-        <div class="panel">
-          <div class="panel-head"><h2>Alarm ve Uyarılar</h2><div class="panel-actions">${attArr.length ? `<span class="pill ${attArr.some((a) => a.sev === "bad") ? "warn" : "on"}"><span class="pdot"></span>${nf(attArr.length)}</span>` : ""}<button class="btn sm ghost" data-go="alarms">Tümü →</button></div></div>
-          <div>${attHtml}</div>
-        </div>
-      </div>
-      ${costHtml}
+      ${costMixHtml ? `<div class="grid-2">${mixHtml}${costMixHtml}</div>` : mixHtml}
       ${projHtml}`;
 
     wireDonut(view);

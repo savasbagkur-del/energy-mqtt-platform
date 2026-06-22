@@ -1990,6 +1990,21 @@ app.get("/billing/aws-cost", requireAdmin, async (_req, res) => {
     const monthToDate = cell?.Amount ? Number(cell.Amount) : 0;
     const currency = cell?.Unit || "USD";
 
+    // Previous full month actual (for the overview's month-over-month comparison).
+    const prevStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    let lastMonth = 0;
+    try {
+      const prev = await client.send(new GetCostAndUsageCommand({
+        TimePeriod: { Start: fmt(prevStart), End: fmt(monthStart) },
+        Granularity: "MONTHLY",
+        Metrics: ["UnblendedCost"]
+      }));
+      const pCell = prev.ResultsByTime?.[0]?.Total?.UnblendedCost;
+      lastMonth = pCell?.Amount ? Number(pCell.Amount) : 0;
+    } catch (pErr) {
+      console.warn("[api] previous-month cost unavailable", { message: pErr instanceof Error ? pErr.message : pErr });
+    }
+
     // Forecast the remaining days of the month; tolerate "not enough history" gracefully.
     let forecastRemaining: number | null = null;
     if (fmt(mtdEnd) < fmt(monthEnd)) {
@@ -2012,7 +2027,9 @@ app.get("/billing/aws-cost", requireAdmin, async (_req, res) => {
       currency,
       monthToDate,
       forecastMonthEnd,
+      lastMonth,
       period: { start: fmt(monthStart), end: fmt(monthEnd) },
+      lastMonthPeriod: { start: fmt(prevStart), end: fmt(monthStart) },
       generatedAt: new Date().toISOString()
     });
   } catch (error) {
