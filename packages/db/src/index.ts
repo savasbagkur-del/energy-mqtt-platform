@@ -12,6 +12,7 @@ export * from "./locks.js";
 export * from "./devices.js";
 export * from "./device-registry.js";
 export * from "./fleet.js";
+export * from "./app-settings.js";
 export * from "./presence.js";
 export * from "./inbound-device-state.js";
 export * from "./last-summary.js";

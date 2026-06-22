@@ -1627,13 +1627,19 @@
         <div class="panel"><div class="empty">Bu sayfa yalnızca yöneticiler içindir.</div></div>`;
       return;
     }
-    let res;
-    try { res = await api("GET", `/fleet/billing?window=${state.settings.onlineWindowSec}`); }
-    catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
+    let res, cfg;
+    try {
+      [res, cfg] = await Promise.all([
+        api("GET", `/fleet/billing?window=${state.settings.onlineWindowSec}`),
+        api("GET", "/billing/config").catch(() => state.settings.billing)
+      ]);
+    } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
 
     const items = res.items || [];
     const totalDevices = res.totalDevices || 0;
-    const b = state.settings.billing;
+    // Config lives server-side now (shared across devices); cache locally for instant first paint.
+    const b = cfg || state.settings.billing;
+    state.settings.billing = b; saveSettings();
     const cost = Number(b.monthlyCost) || 0;
     const margin = Number(b.marginPct) || 0;
     const totalCharge = cost * (1 + margin / 100);
@@ -1709,10 +1715,16 @@
         </table></div>
       </div>`;
 
-    const persist = () => { saveSettings(); renderBilling(true); };
-    $("#blCost").addEventListener("change", (e) => { state.settings.billing.monthlyCost = Math.max(0, Number(e.target.value) || 0); persist(); });
-    $("#blMargin").addEventListener("change", (e) => { state.settings.billing.marginPct = Math.max(0, Number(e.target.value) || 0); persist(); });
-    $("#blCur").addEventListener("change", (e) => { state.settings.billing.currency = e.target.value; persist(); });
+    const saveCfg = async (patch) => {
+      const next = Object.assign({}, b, patch);
+      state.settings.billing = next; saveSettings();
+      try { state.settings.billing = await api("PUT", "/billing/config", next); saveSettings(); }
+      catch (e) { toast("Kaydedilemedi", e.message || "Sunucuya yazılamadı", "error"); }
+      renderBilling(true);
+    };
+    $("#blCost").addEventListener("change", (e) => saveCfg({ monthlyCost: Math.max(0, Number(e.target.value) || 0) }));
+    $("#blMargin").addEventListener("change", (e) => saveCfg({ marginPct: Math.max(0, Number(e.target.value) || 0) }));
+    $("#blCur").addEventListener("change", (e) => saveCfg({ currency: e.target.value }));
     $("#blPeriod").addEventListener("change", (e) => { billingState.period = e.target.value || defaultPeriod(); renderBilling(true); });
     $("#blExport").addEventListener("click", () => {
       const cols = ["donem", "musteri", "proje", "cihaz", "cevrimici", "pay_yuzde", "maliyet_payi", "talep_tutari", "para_birimi"];
@@ -1731,8 +1743,11 @@
       try {
         const c = await api("GET", "/billing/aws-cost");
         const pick = c.forecastMonthEnd != null ? c.forecastMonthEnd : c.monthToDate;
-        state.settings.billing.monthlyCost = Math.round((pick + Number.EPSILON) * 100) / 100;
-        if (c.currency && CUR_SYM[c.currency]) state.settings.billing.currency = c.currency;
+        const patch = { monthlyCost: Math.round((pick + Number.EPSILON) * 100) / 100 };
+        if (c.currency && CUR_SYM[c.currency]) patch.currency = c.currency;
+        const next = Object.assign({}, b, patch);
+        try { state.settings.billing = await api("PUT", "/billing/config", next); }
+        catch { state.settings.billing = next; }
         saveSettings();
         const fc = c.forecastMonthEnd != null ? ` · ay sonu tahmini ${money(c.forecastMonthEnd)}` : "";
         toast("AWS maliyeti alındı", `Bu ay ${money(c.monthToDate)}${fc}`, "success", 5000);

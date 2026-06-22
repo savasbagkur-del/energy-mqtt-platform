@@ -61,6 +61,8 @@ import {
   getFleetOverview,
   getProjectOverview,
   getBillingAllocation,
+  getBillingConfig,
+  setBillingConfig,
   getCustomerHierarchy,
   getModelOverview,
   listFleetDevices,
@@ -1917,6 +1919,31 @@ app.get("/fleet/billing", requireAdmin, async (req, res) => {
   } catch (error) {
     console.error("[api] failed to build billing allocation", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_build_billing_allocation" });
+  }
+});
+
+// Billing chargeback config (monthly cost + margin + currency), shared across devices.
+app.get("/billing/config", requireAdmin, async (_req, res) => {
+  try {
+    res.status(200).json(await getBillingConfig(dbPool));
+  } catch (error) {
+    console.error("[api] failed to read billing config", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_read_billing_config" });
+  }
+});
+
+app.put("/billing/config", requireAdmin, async (req, res) => {
+  try {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const saved = await setBillingConfig(dbPool, {
+      monthlyCost: Number(b.monthlyCost),
+      marginPct: Number(b.marginPct),
+      currency: typeof b.currency === "string" ? b.currency : undefined
+    });
+    res.status(200).json(saved);
+  } catch (error) {
+    console.error("[api] failed to save billing config", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_save_billing_config" });
   }
 });
 
