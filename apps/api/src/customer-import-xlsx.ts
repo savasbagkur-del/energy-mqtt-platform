@@ -16,9 +16,9 @@ export const IMPORT_COLUMNS: Array<{
 }> = [
   { key: "musteri_adi", header: "Müşteri Adı", width: 26, required: true },
   { key: "telefon", header: "Telefon", width: 16, required: true, text: true },
-  { key: "eposta", header: "E-posta", width: 28, required: false },
+  { key: "kullanici", header: "Giriş kullanıcı adı", width: 18, required: false },
   { key: "baglanti", header: "Bağlantı Tipi", width: 14, required: true },
-  { key: "kullanici", header: "Panel Kullanıcı", width: 18, required: false },
+  { key: "eposta", header: "E-posta", width: 28, required: false },
   { key: "parola", header: "Parola", width: 16, required: false },
   { key: "seri_no", header: "Sayaç Seri No", width: 22, required: false, text: true },
   { key: "daire_dukkan", header: "Daire / Dükkan", width: 16, required: false },
@@ -71,8 +71,8 @@ const CUSTOMER_OFFSET = {
   musteri_adi: { r: 2, c: 3, mergeTo: { r: 2, c: 8 } },
   telefon: { r: 3, c: 3, mergeTo: { r: 3, c: 4 } },
   baglanti: { r: 3, c: 7, mergeTo: { r: 3, c: 8 } },
-  eposta: { r: 4, c: 3, mergeTo: { r: 4, c: 4 } },
-  kullanici: { r: 4, c: 7, mergeTo: { r: 4, c: 8 } },
+  eposta: { r: 4, c: 7, mergeTo: { r: 4, c: 8 } },
+  kullanici: { r: 4, c: 3, mergeTo: { r: 4, c: 4 } },
   parola: { r: 5, c: 3, mergeTo: { r: 5, c: 4 } },
   not: { r: 5, c: 7, mergeTo: { r: 5, c: 8 } },
   sayaclarBanner: { r: 7, c: 1 },
@@ -143,10 +143,10 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
     error: "panel veya api"
   };
 
-  styleLabel(ws.getCell(R + 4, 1), "E-posta");
+  styleLabel(ws.getCell(R + 4, 1), "Giriş kullanıcı adı");
   ws.mergeCells(R + 4, 1, R + 4, 2);
   mergeStyle(ws, R + 4, 3, R + 4, 4, false);
-  styleLabel(ws.getCell(R + 4, 5), "Panel Kullanıcı");
+  styleLabel(ws.getCell(R + 4, 5), "E-posta");
   ws.mergeCells(R + 4, 5, R + 4, 6);
   mergeStyle(ws, R + 4, 7, R + 4, 8, false);
 
@@ -264,7 +264,7 @@ const buildBulkSheet = (ws: ExcelJS.Worksheet) => {
   t.fill = { type: "pattern", pattern: "solid", fgColor: { argb: C.sectionBg } };
 
   const headers = [
-    "Müşteri Adı *", "Telefon *", "E-posta", "Bağlantı Tipi *", "Panel Kullanıcı", "Parola",
+    "Müşteri Adı *", "Telefon *", "Giriş kullanıcı adı", "Bağlantı Tipi *", "E-posta", "Parola",
     "Sayaç Seri No", "Daire / Dükkan", "Usage", "Not"
   ];
   headers.forEach((h, i) => {
@@ -323,6 +323,7 @@ export const buildCustomerImportTemplate = async (): Promise<Buffer> => {
     ["Kayıt Formu", "Tek müşteri için üst bölüm müşteri bilgileri, alt tablo sayaçlar. İki müşteri bloğu vardır."],
     ["Toplu Kayıt", "Çok müşteri / çok sayaç için klasik satır listesi (her sayaç ayrı satır)."],
     ["Bağlantı Tipi", "panel = yerel panel · api = 3. parti yazılım"],
+    ["Giriş kullanıcı adı", "panel modunda müşterinin panele giriş yapacağı kullanıcı adı (Parola ile birlikte zorunlu)."],
     ["Usage", "prepaid (varsayılan) veya postpaid"],
     ["Telefon / SN", "Metin olarak yazın (0555…, 24042809890001)."],
     ["Yükleme", "Panel → Müşteriler → Toplu yükle → .xlsx dosyasını seçin."]
@@ -416,6 +417,8 @@ const BULK_HEADER_MAP: Record<string, string> = {
   "baglanti tipi": "baglanti",
   "panel kullanıcı": "kullanici",
   "panel kullanici": "kullanici",
+  "giriş kullanıcı adı": "kullanici",
+  "giris kullanici adi": "kullanici",
   "parola": "parola",
   "sayaç seri no": "seri_no",
   "sayac seri no": "seri_no",

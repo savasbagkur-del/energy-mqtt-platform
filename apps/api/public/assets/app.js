@@ -1781,7 +1781,7 @@
           ${acctRow("İletişim", esc(customer.phone || "—"), true)}
           ${acctRow("E-posta", esc(customer.email || "—"))}
           ${acctRow("Bağlantı tipi", (customer.integration_mode || (customer.panel_enabled ? "panel" : "api")) === "panel" ? "Yerel panel kullanımı" : "3. parti yazılım (API)")}
-          ${acctRow("Panel kullanıcı adı", esc(customer.panel_username || "—"), true)}
+          ${acctRow("Giriş kullanıcı adı", esc(customer.panel_username || "—"), true)}
           ${acctRow("Kayıt tarihi", fmtDate(customer.created_at))}
           ${acctRow("Aktivasyon", customer.activated_at ? fmtDate(customer.activated_at) : `<span class="pill off sm">bekliyor</span>`)}
           ${acctRow("Sayaç", `${nf(customer.online_count)} çevrimiçi / ${nf(customer.device_count)} toplam${customer.pending_meter_count > 0 ? ` · <span class="pill warn sm">${nf(customer.pending_meter_count)} bağlantı bekliyor</span>` : ""}`)}
@@ -1880,7 +1880,7 @@
         <div class="modal-head"><h3>Toplu müşteri yükleme</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
         <p class="muted">Profesyonel <strong>Kayıt Formu</strong>: üstte müşteri bilgileri, altta sayaç tablosu. Birden fazla müşteri için ikinci blok veya <em>Toplu Kayıt</em> sekmesi.</p>
         <div class="panel-inset import-help">
-          <strong>Sütunlar:</strong> Müşteri Adı · Telefon · E-posta · Bağlantı Tipi (panel/api) · Panel Kullanıcı · Parola · Sayaç Seri No · Daire/Dükkan · Usage · Not — ayrıntılar şablondaki <em>Açıklama</em> sekmesinde.
+          <strong>Sütunlar:</strong> Müşteri Adı · Telefon · Giriş kullanıcı adı · Bağlantı Tipi (panel/api) · E-posta · Parola · Sayaç Seri No · Daire/Dükkan · Usage · Not — ayrıntılar şablondaki <em>Açıklama</em> sekmesinde.
         </div>
         <div class="form-grid two" style="margin-bottom:12px">
           <label>Dosya<input type="file" id="ciFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>
@@ -2078,7 +2078,7 @@
         <div id="cuPanelBlock">
           <div class="form-section-h">Panel giriş hesabı</div>
           <div class="form-grid">
-            <label>Kullanıcı adı *<input id="cuUser" placeholder="örn. ahmet.yilmaz" autocomplete="off" /></label>
+            <label>Giriş kullanıcı adı *<input id="cuUser" placeholder="Panelde girişte kullanılacak ad" autocomplete="off" /></label>
             <label>Parola *<input id="cuPass" type="password" placeholder="en az 8 karakter" autocomplete="new-password" /></label>
             <label>Parola (tekrar) *<input id="cuPass2" type="password" autocomplete="new-password" /></label>
           </div>

@@ -155,7 +155,7 @@ export const parseCustomerImportRows = (
         email: pick(row, "eposta", "email") || null,
         notes: pick(row, "not", "notes") || null,
         integrationMode: normalizeIntegration(pick(row, "baglanti", "integration_mode", "integrationMode", "bağlantı tipi", "baglanti tipi")),
-        username: pick(row, "kullanici", "username", "kullanici_adi", "panel kullanıcı", "panel kullanici"),
+        username: pick(row, "kullanici", "username", "kullanici_adi", "giriş kullanıcı adı", "giris kullanici adi", "panel kullanıcı", "panel kullanici"),
         password: pick(row, "parola", "password", "sifre"),
         meters: []
       };
