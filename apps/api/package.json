@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-cost-explorer": "^3.1073.0",
     "@communication/contracts": "workspace:*",
     "@communication/core": "workspace:*",
     "@communication/db": "workspace:*",

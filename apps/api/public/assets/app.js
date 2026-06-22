@@ -1669,6 +1669,10 @@
             <input id="blPeriod" type="month" value="${esc(billingState.period)}" />
           </label>
         </div>
+        <div class="bl-aws">
+          <button class="btn sm" id="blAws"><svg viewBox="0 0 24 24" class="ic"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg>AWS'den çek</button>
+          <span class="muted" id="blAwsInfo">Gerçek faturayı (bu ay + ay sonu tahmini) AWS Cost Explorer'dan otomatik doldurur.</span>
+        </div>
       </div>
 
       <div class="kpi-grid">
@@ -1720,6 +1724,24 @@
       lines.push(["", "TOPLAM", "", totalDevices, "", "100.00", cost.toFixed(2), totalCharge.toFixed(2), b.currency].join(","));
       downloadFile(`volt4amper-faturalandirma-${billingState.period}.csv`, lines.join("\n"));
       toast("Dışa aktarıldı", `${rows.length} proje · ${billingState.period}`, "success");
+    });
+    $("#blAws").addEventListener("click", async () => {
+      const btn = $("#blAws"); const info = $("#blAwsInfo");
+      btn.disabled = true; const old = info.textContent; info.textContent = "AWS Cost Explorer sorgulanıyor…";
+      try {
+        const c = await api("GET", "/billing/aws-cost");
+        const pick = c.forecastMonthEnd != null ? c.forecastMonthEnd : c.monthToDate;
+        state.settings.billing.monthlyCost = Math.round((pick + Number.EPSILON) * 100) / 100;
+        if (c.currency && CUR_SYM[c.currency]) state.settings.billing.currency = c.currency;
+        saveSettings();
+        const fc = c.forecastMonthEnd != null ? ` · ay sonu tahmini ${money(c.forecastMonthEnd)}` : "";
+        toast("AWS maliyeti alındı", `Bu ay ${money(c.monthToDate)}${fc}`, "success", 5000);
+        renderBilling(true);
+      } catch (e) {
+        btn.disabled = false; info.textContent = old;
+        if (e.status === 503) toast("AWS yapılandırılmamış", "Sunucuda AWS anahtarı tanımlı değil (.env.production).", "warn", 6000);
+        else toast("AWS'den alınamadı", (e.body && e.body.detail) || e.message || "Bilinmeyen hata", "error", 6000);
+      }
     });
     state.refresher = renderBilling;
   }

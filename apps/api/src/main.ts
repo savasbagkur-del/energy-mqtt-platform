@@ -1,6 +1,7 @@
 import path from "node:path";
 import crypto from "node:crypto";
 import express from "express";
+import { CostExplorerClient, GetCostAndUsageCommand, GetCostForecastCommand } from "@aws-sdk/client-cost-explorer";
 import { appConfig, generateCommandMsgid } from "@communication/core";
 import {
   addCommandEvent,
@@ -1916,6 +1917,68 @@ app.get("/fleet/billing", requireAdmin, async (req, res) => {
   } catch (error) {
     console.error("[api] failed to build billing allocation", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_build_billing_allocation" });
+  }
+});
+
+// Pulls the real AWS bill (month-to-date + month-end forecast) via Cost Explorer so the operator
+// can auto-fill the billing page instead of typing it. Optional: returns 503 if no AWS key set.
+app.get("/billing/aws-cost", requireAdmin, async (_req, res) => {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  if (!accessKeyId || !secretAccessKey) {
+    res.status(503).json({ error: "aws_not_configured" });
+    return;
+  }
+  try {
+    const client = new CostExplorerClient({
+      region: process.env.AWS_COST_REGION || "us-east-1",
+      credentials: { accessKeyId, secretAccessKey }
+    });
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const fmt = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)); // exclusive
+    const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    const mtdEnd = tomorrow < monthEnd ? tomorrow : monthEnd; // include today's partial, stay in-month
+
+    const usage = await client.send(new GetCostAndUsageCommand({
+      TimePeriod: { Start: fmt(monthStart), End: fmt(mtdEnd) },
+      Granularity: "MONTHLY",
+      Metrics: ["UnblendedCost"]
+    }));
+    const cell = usage.ResultsByTime?.[0]?.Total?.UnblendedCost;
+    const monthToDate = cell?.Amount ? Number(cell.Amount) : 0;
+    const currency = cell?.Unit || "USD";
+
+    // Forecast the remaining days of the month; tolerate "not enough history" gracefully.
+    let forecastRemaining: number | null = null;
+    if (fmt(mtdEnd) < fmt(monthEnd)) {
+      try {
+        const fc = await client.send(new GetCostForecastCommand({
+          TimePeriod: { Start: fmt(mtdEnd), End: fmt(monthEnd) },
+          Granularity: "MONTHLY",
+          Metric: "UNBLENDED_COST"
+        }));
+        forecastRemaining = fc.Total?.Amount ? Number(fc.Total.Amount) : 0;
+      } catch (fErr) {
+        console.warn("[api] cost forecast unavailable", { message: fErr instanceof Error ? fErr.message : fErr });
+      }
+    } else {
+      forecastRemaining = 0;
+    }
+    const forecastMonthEnd = forecastRemaining === null ? null : monthToDate + forecastRemaining;
+
+    res.status(200).json({
+      currency,
+      monthToDate,
+      forecastMonthEnd,
+      period: { start: fmt(monthStart), end: fmt(monthEnd) },
+      generatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("[api] failed to fetch AWS cost", { message: error instanceof Error ? error.message : error });
+    res.status(502).json({ error: "aws_cost_fetch_failed", detail: error instanceof Error ? error.message : String(error) });
   }
 });
 

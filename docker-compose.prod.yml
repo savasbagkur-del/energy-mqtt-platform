@@ -102,6 +102,10 @@ services:
       MQTT_USERNAME: ${MQTT_USERNAME}
       MQTT_PASSWORD: ${MQTT_PASSWORD}
       MQTT_CLIENT_ID: ${MQTT_CLIENT_ID}-api
+      # AWS Cost Explorer (optional): lets the billing page pull the real monthly bill.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_COST_REGION: ${AWS_COST_REGION:-us-east-1}
     ports:
       # Bound to loopback only: the API is reached via nginx over the compose network
       # (proxy_pass http://api:3000). The host port stays off the public interface.

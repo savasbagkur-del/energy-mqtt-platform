@@ -625,6 +625,8 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* billing: cost chargeback */
 .bl-config { padding: 16px 18px; margin-bottom: 18px; }
+.bl-aws { display: flex; align-items: center; gap: 10px; margin-top: 13px; flex-wrap: wrap; }
+.bl-aws .muted { font-size: 12px; }
 .in-affix { display: flex; align-items: center; }
 .in-affix > span { padding: 0 8px; height: 34px; display: grid; place-items: center; background: var(--panel-3); border: 1px solid var(--line); border-right: 0; border-radius: 8px 0 0 8px; color: var(--muted); font-weight: 700; }
 .in-affix > input { border-radius: 0 8px 8px 0; }
