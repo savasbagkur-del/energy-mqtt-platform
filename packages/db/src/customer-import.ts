@@ -1,0 +1,405 @@
+import type { Pool } from "pg";
+import { getDeviceRegistry, registerDevice } from "./device-registry.js";
+import { createCustomerWithAccount, type CreateCustomerAccountInput } from "./customers.js";
+
+export const CUSTOMER_IMPORT_TEMPLATE = [
+  "musteri_adi,telefon,eposta,baglanti,kullanici,parola,seri_no,daire_dukkan,usage,not",
+  "Örnek Müşteri A,05551234567,ornek@mail.com,panel,ornek.kullanici,Sifre123!,24042809890001,A-12,prepaid,",
+  "Örnek Müşteri A,05551234567,ornek@mail.com,panel,ornek.kullanici,Sifre123!,24042809890002,B-03,prepaid,",
+  "Örnek Müşteri B,05559876543,,api,,,24042809890003,Dükkan 1,prepaid,3. parti yazılım"
+].join("\r\n");
+
+const pick = (row: Record<string, string>, ...keys: string[]): string => {
+  for (const k of keys) {
+    const v = row[k]?.trim();
+    if (v) return v;
+  }
+  return "";
+};
+
+export interface ParsedCustomerImportMeter {
+  rowNum: number;
+  sn: string;
+  unitNo: string | null;
+  meterUsage: "prepaid" | "postpaid";
+}
+
+export interface ParsedCustomerImportGroup {
+  key: string;
+  rowNums: number[];
+  name: string;
+  phone: string;
+  email: string | null;
+  notes: string | null;
+  integrationMode: "panel" | "api";
+  username: string;
+  password: string;
+  meters: ParsedCustomerImportMeter[];
+}
+
+export interface CustomerImportParseError {
+  rowNum: number;
+  message: string;
+}
+
+export interface QuarantineMatchInfo {
+  sn: string;
+  model: string | null;
+  last_seen_at: string | null;
+  matchType: "exact" | "suffix";
+}
+
+export interface CustomerImportMeterPreview extends ParsedCustomerImportMeter {
+  quarantineMatch: QuarantineMatchInfo | null;
+  quarantineOptions: QuarantineMatchInfo[];
+}
+
+export interface CustomerImportPreviewGroup {
+  key: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  notes: string | null;
+  integrationMode: "panel" | "api";
+  username: string;
+  hasPassword: boolean;
+  password: string;
+  meters: CustomerImportMeterPreview[];
+  errors: string[];
+}
+
+export interface CustomerImportPreviewResult {
+  customers: CustomerImportPreviewGroup[];
+  errors: CustomerImportParseError[];
+  totalRows: number;
+}
+
+export interface CustomerImportConfirmCustomer {
+  name: string;
+  phone: string;
+  email?: string | null;
+  notes?: string | null;
+  integrationMode: "panel" | "api";
+  username?: string;
+  password?: string;
+  passwordHash?: string;
+  meters: Array<{
+    sn: string;
+    unitNo?: string | null;
+    meterUsage?: "prepaid" | "postpaid";
+    linkQuarantine?: boolean;
+    quarantineSn?: string | null;
+  }>;
+}
+
+export interface CustomerImportApplyResult {
+  customersCreated: number;
+  metersRegistered: number;
+  quarantineLinked: number;
+  failed: Array<{ name: string; error: string }>;
+}
+
+const normalizeIntegration = (raw: string): "panel" | "api" => {
+  const t = raw.trim().toLowerCase();
+  if (t === "api" || t === "3. parti" || t === "3.parti" || t === "3parti") return "api";
+  return "panel";
+};
+
+const normalizeUsage = (raw: string): "prepaid" | "postpaid" =>
+  raw.trim().toLowerCase() === "postpaid" ? "postpaid" : "prepaid";
+
+export const parseCustomerImportRows = (
+  rows: Array<Record<string, string>>
+): { groups: ParsedCustomerImportGroup[]; errors: CustomerImportParseError[] } => {
+  const errors: CustomerImportParseError[] = [];
+  const map = new Map<string, ParsedCustomerImportGroup>();
+  const meterSeen = new Set<string>();
+
+  rows.forEach((row, idx) => {
+    const rowNum = idx + 2;
+    const name = pick(row, "musteri_adi", "customer_name", "name", "ad_unvan");
+    const phone = pick(row, "telefon", "phone", "iletisim");
+    const sn = pick(row, "seri_no", "meter_sn", "sn", "seri");
+    if (!name && !phone && !sn) return;
+
+    if (!name) {
+      errors.push({ rowNum, message: "musteri_adi zorunlu" });
+      return;
+    }
+    if (!phone) {
+      errors.push({ rowNum, message: "telefon zorunlu" });
+      return;
+    }
+    const phoneNorm = phone.replace(/\s/g, "");
+    if (!/^\+?\d{10,15}$/.test(phoneNorm)) {
+      errors.push({ rowNum, message: "geçersiz telefon" });
+      return;
+    }
+
+    const key = `${name.toLowerCase()}|${phoneNorm}`;
+    let group = map.get(key);
+    if (!group) {
+      group = {
+        key,
+        rowNums: [],
+        name,
+        phone,
+        email: pick(row, "eposta", "email") || null,
+        notes: pick(row, "not", "notes") || null,
+        integrationMode: normalizeIntegration(pick(row, "baglanti", "integration_mode", "integrationMode")),
+        username: pick(row, "kullanici", "username", "kullanici_adi"),
+        password: pick(row, "parola", "password", "sifre"),
+        meters: []
+      };
+      map.set(key, group);
+    } else {
+      const email = pick(row, "eposta", "email");
+      const notes = pick(row, "not", "notes");
+      if (email) group.email = email;
+      if (notes) group.notes = notes;
+      const user = pick(row, "kullanici", "username");
+      const pass = pick(row, "parola", "password");
+      if (user) group.username = user;
+      if (pass) group.password = pass;
+    }
+    group.rowNums.push(rowNum);
+
+    if (sn) {
+      const snKey = sn.toLowerCase();
+      if (meterSeen.has(snKey)) {
+        errors.push({ rowNum, message: `tekrarlayan seri no: ${sn}` });
+        return;
+      }
+      meterSeen.add(snKey);
+      group.meters.push({
+        rowNum,
+        sn,
+        unitNo: pick(row, "daire_dukkan", "unit_no", "unitNo", "daire") || null,
+        meterUsage: normalizeUsage(pick(row, "usage", "meter_usage", "meterUsage") || "prepaid")
+      });
+    }
+  });
+
+  return { groups: [...map.values()], errors };
+};
+
+const toMatchInfo = (row: { sn: string; model?: string | null; last_seen_at?: string | null }, matchType: "exact" | "suffix"): QuarantineMatchInfo => ({
+  sn: row.sn,
+  model: row.model ?? null,
+  last_seen_at: row.last_seen_at ?? null,
+  matchType
+});
+
+export const findQuarantineMatchesForSn = async (
+  pool: Pool,
+  sn: string
+): Promise<{ best: QuarantineMatchInfo | null; options: QuarantineMatchInfo[] }> => {
+  const trimmed = sn.trim();
+  if (!trimmed) return { best: null, options: [] };
+
+  const exact = await getDeviceRegistry(pool, trimmed);
+  if (exact?.registry_status === "quarantined") {
+    const info = toMatchInfo(exact, "exact");
+    return { best: info, options: [info] };
+  }
+
+  const tail = trimmed.slice(-2);
+  if (tail.length < 2) return { best: null, options: [] };
+
+  const res = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
+    `SELECT d.sn, d.model, d.last_seen_at
+     FROM devices d
+     WHERE d.registry_status = 'quarantined' AND d.sn ILIKE $1
+     ORDER BY d.last_seen_at DESC NULLS LAST
+     LIMIT 20`,
+    [`%${tail}`]
+  );
+  const options = res.rows
+    .filter((r) => r.sn.toLowerCase().endsWith(tail.toLowerCase()))
+    .map((r) => toMatchInfo(r, "suffix"));
+
+  if (options.length === 1) return { best: options[0]!, options };
+  const exactSuffix = options.find((o) => o.sn === trimmed);
+  if (exactSuffix) return { best: exactSuffix, options };
+  return { best: null, options };
+};
+
+export const previewCustomerImport = async (
+  pool: Pool,
+  rows: Array<Record<string, string>>
+): Promise<CustomerImportPreviewResult> => {
+  const { groups, errors } = parseCustomerImportRows(rows);
+  const customers: CustomerImportPreviewGroup[] = [];
+
+  for (const g of groups) {
+    const groupErrors: string[] = [];
+    if (g.integrationMode === "panel") {
+      if (!g.username || g.username.length < 3) groupErrors.push("panel modu: kullanici en az 3 karakter");
+      if (!g.password || g.password.length < 8) groupErrors.push("panel modu: parola en az 8 karakter");
+    }
+
+    const meters: CustomerImportMeterPreview[] = [];
+    for (const m of g.meters) {
+      const { best, options } = await findQuarantineMatchesForSn(pool, m.sn);
+      meters.push({ ...m, quarantineMatch: best, quarantineOptions: options });
+    }
+
+    customers.push({
+      key: g.key,
+      name: g.name,
+      phone: g.phone,
+      email: g.email,
+      notes: g.notes,
+      integrationMode: g.integrationMode,
+      username: g.username,
+      hasPassword: g.password.length >= 8,
+      password: g.password,
+      meters,
+      errors: groupErrors
+    });
+  }
+
+  return { customers, errors, totalRows: rows.length };
+};
+
+export const applyCustomerImport = async (
+  pool: Pool,
+  customers: CustomerImportConfirmCustomer[],
+  hashPassword: (pw: string) => string
+): Promise<CustomerImportApplyResult> => {
+  let customersCreated = 0;
+  let metersRegistered = 0;
+  let quarantineLinked = 0;
+  const failed: Array<{ name: string; error: string }> = [];
+
+  for (const c of customers) {
+    try {
+      const integrationMode = c.integrationMode === "api" ? "api" : "panel";
+      const panelOn = integrationMode === "panel";
+      const metersInput: CreateCustomerAccountInput["meters"] = [];
+
+      for (const m of c.meters ?? []) {
+        const sn = m.sn.trim();
+        if (!sn) continue;
+        let registerSn = sn;
+        if (m.linkQuarantine && m.quarantineSn) registerSn = m.quarantineSn.trim();
+        else if (m.linkQuarantine) registerSn = sn;
+
+        if (m.linkQuarantine) {
+          const ex = await getDeviceRegistry(pool, registerSn);
+          if (ex?.registry_status === "quarantined") quarantineLinked += 1;
+        }
+
+        metersInput.push({
+          sn: registerSn,
+          unitNo: m.unitNo?.trim() || null,
+          meterUsage: m.meterUsage === "postpaid" ? "postpaid" : "prepaid"
+        });
+      }
+
+      const result = await createCustomerWithAccount(pool, {
+        name: c.name.trim(),
+        phone: c.phone.trim(),
+        email: c.email ?? null,
+        notes: c.notes ?? null,
+        integrationMode,
+        panelEnabled: panelOn,
+        username: panelOn ? (c.username || "").trim() : "",
+        passwordHash: panelOn
+          ? (c.passwordHash || (c.password ? hashPassword(c.password) : ""))
+          : "",
+        meters: metersInput
+      });
+
+      customersCreated += 1;
+      metersRegistered += result.metersRegistered;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      failed.push({ name: c.name, error: msg });
+    }
+  }
+
+  return { customersCreated, metersRegistered, quarantineLinked, failed };
+};
+
+export interface CustomerPendingLinkRow {
+  expectedSn: string;
+  unitNo: string | null;
+  meterUsage: string;
+  quarantineMatch: QuarantineMatchInfo | null;
+  quarantineOptions: QuarantineMatchInfo[];
+}
+
+/** All pending (never seen) customer meters with quarantine match hints. */
+export const listCustomerQuarantineLinkCandidates = async (
+  pool: Pool,
+  customerId: string
+): Promise<CustomerPendingLinkRow[]> => {
+  const pending = await pool.query<{ sn: string; unit_no: string | null; meter_usage: string; registry_status: string }>(
+    `SELECT d.sn, d.unit_no, d.meter_usage, d.registry_status
+     FROM devices d
+     WHERE d.customer_id = $1 AND d.last_seen_at IS NULL
+     ORDER BY d.sn`,
+    [customerId]
+  );
+
+  const out: CustomerPendingLinkRow[] = [];
+  for (const row of pending.rows) {
+    if (row.registry_status === "quarantined") continue;
+    const { best, options } = await findQuarantineMatchesForSn(pool, row.sn);
+    out.push({
+      expectedSn: row.sn,
+      unitNo: row.unit_no,
+      meterUsage: row.meter_usage,
+      quarantineMatch: best,
+      quarantineOptions: options
+    });
+  }
+  return out;
+};
+
+export const linkCustomerQuarantineMeters = async (
+  pool: Pool,
+  customerId: string,
+  links: Array<{ expectedSn: string; quarantineSn: string }>
+): Promise<{ linked: number; failed: Array<{ sn: string; error: string }> }> => {
+  let linked = 0;
+  const failed: Array<{ sn: string; error: string }> = [];
+
+  for (const link of links) {
+    try {
+      const pending = await pool.query<{ unit_no: string | null; meter_usage: string }>(
+        `SELECT unit_no, meter_usage FROM devices WHERE customer_id = $1 AND sn = $2`,
+        [customerId, link.expectedSn]
+      );
+      const meta = pending.rows[0];
+      if (!meta) {
+        failed.push({ sn: link.expectedSn, error: "pending_meter_not_found" });
+        continue;
+      }
+      const q = await getDeviceRegistry(pool, link.quarantineSn);
+      if (!q || q.registry_status !== "quarantined") {
+        failed.push({ sn: link.quarantineSn, error: "not_quarantined" });
+        continue;
+      }
+      await registerDevice(pool, {
+        sn: link.quarantineSn,
+        customerId,
+        unitNo: meta.unit_no,
+        label: meta.unit_no,
+        meterUsage: meta.meter_usage === "postpaid" ? "postpaid" : "prepaid"
+      });
+      if (link.expectedSn !== link.quarantineSn) {
+        await pool.query(
+          `DELETE FROM devices WHERE sn = $1 AND customer_id = $2 AND last_seen_at IS NULL`,
+          [link.expectedSn, customerId]
+        );
+      }
+      linked += 1;
+    } catch (e) {
+      failed.push({ sn: link.quarantineSn, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  return { linked, failed };
+};

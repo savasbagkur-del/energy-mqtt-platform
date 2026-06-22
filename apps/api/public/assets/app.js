@@ -209,6 +209,17 @@
     }
     setConn(true);
     markUpdated();
+    if (opts.rawText) {
+      if (!res.ok) {
+        let errJson = null;
+        try { errJson = await res.json(); } catch { /* ignore */ }
+        const err = new Error((errJson && errJson.error) || `HTTP ${res.status}`);
+        err.status = res.status;
+        err.body = errJson;
+        throw err;
+      }
+      return res.text();
+    }
     let json = null;
     try { json = await res.json(); } catch { /* non-json */ }
     if (!res.ok) { const err = new Error((json && json.error) || `HTTP ${res.status}`); err.status = res.status; err.body = json; throw err; }
@@ -1672,7 +1683,11 @@
     view.innerHTML = `
       <div class="page-head">
         <div><h1>Müşteriler</h1><div class="sub">${nf(total)} müşteri · ${nf(panelCount)} panel · ${nf(apiCount)} API entegrasyonu</div></div>
-        <div class="head-actions"><button class="btn primary" id="cuNew"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Yeni müşteri</button></div>
+        <div class="head-actions">
+          ${isAdmin() ? `<button class="btn" id="cuTemplate"><svg viewBox="0 0 24 24" class="ic"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>Excel şablonu</button>
+          <button class="btn" id="cuImport"><svg viewBox="0 0 24 24" class="ic"><path d="M12 15V3m0 0 4 4m-4-4-4 4M5 21h14"/></svg>Toplu yükle</button>` : ""}
+          <button class="btn primary" id="cuNew"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Yeni müşteri</button>
+        </div>
       </div>
       <div class="panel"><div class="table-wrap"><table class="data cust-acct-table">
         <thead><tr>
@@ -1688,8 +1703,9 @@
             <td class="muted">${c.activated_at ? fmtDate(c.activated_at) : `<span class="pill off sm">bekliyor</span>`}</td>
             <td class="num">${nf(c.device_count)}</td>
             <td class="num">${c.device_count ? nf(c.online_count) : "—"}</td>
-            <td>${connBadges(c)}</td>
+            <td>${connBadges(c)}${c.pending_meter_count > 0 ? ` <span class="pill warn sm" title="Henüz bağlanmayan sayaç">${nf(c.pending_meter_count)} bekliyor</span>` : ""}</td>
             <td class="row-actions">
+              ${isAdmin() && c.pending_meter_count > 0 ? `<button class="btn sm ${c.linkable_quarantine_count > 0 ? "warn" : ""}" data-qmatch="${esc(c.id)}" data-qname="${esc(c.name)}">${IC_SEARCH.replace('class="ic"', 'class="ic sm"')} Ara</button>` : ""}
               <button class="btn sm" data-keys="${esc(c.id)}">API anahtarları${c.active_key_count ? ` (${nf(c.active_key_count)})` : ""}</button>
               <button class="btn sm ghost" data-detail="${esc(c.id)}">Detay →</button>
             </td>
@@ -1697,6 +1713,13 @@
       </table></div></div>`;
 
     $("#cuNew").addEventListener("click", openCustomerModal);
+    const tplBtn = $("#cuTemplate");
+    if (tplBtn) tplBtn.addEventListener("click", downloadCustomerImportTemplate);
+    const impBtn = $("#cuImport");
+    if (impBtn) impBtn.addEventListener("click", openCustomerImportModal);
+    $$("[data-qmatch]", view).forEach((b) => b.addEventListener("click", () => {
+      openQuarantineLinkModal(b.dataset.qmatch, b.dataset.qname || "", () => renderCustomers());
+    }));
     $$("[data-keys]", view).forEach((b) => b.addEventListener("click", () => {
       const c = items.find((x) => String(x.id) === b.dataset.keys);
       if (c) openApiKeysModal(c);
@@ -1751,11 +1774,12 @@
           ${acctRow("Panel kullanıcı adı", esc(customer.panel_username || "—"), true)}
           ${acctRow("Kayıt tarihi", fmtDate(customer.created_at))}
           ${acctRow("Aktivasyon", customer.activated_at ? fmtDate(customer.activated_at) : `<span class="pill off sm">bekliyor</span>`)}
-          ${acctRow("Sayaç", `${nf(customer.online_count)} çevrimiçi / ${nf(customer.device_count)} toplam`)}
+          ${acctRow("Sayaç", `${nf(customer.online_count)} çevrimiçi / ${nf(customer.device_count)} toplam${customer.pending_meter_count > 0 ? ` · <span class="pill warn sm">${nf(customer.pending_meter_count)} bağlantı bekliyor</span>` : ""}`)}
         </div>
       </div>`;
     const devRow = (d) => {
-      const st = d.online ? `<span class="pill on sm"><span class="pdot"></span>Çevrimiçi</span>` : `<span class="pill off sm"><span class="pdot"></span>Çevrimdışı</span>`;
+      const pending = !d.last_seen_at;
+      const st = d.online ? `<span class="pill on sm"><span class="pdot"></span>Çevrimiçi</span>` : pending ? `<span class="pill warn sm"><span class="pdot"></span>Bekliyor</span>` : `<span class="pill off sm"><span class="pdot"></span>Çevrimdışı</span>`;
       const lc = LIFECYCLE_LABEL[d.lifecycle_status] || d.lifecycle_status || "—";
       return `<tr data-sn="${esc(d.sn)}">
         <td>${st}</td>
@@ -1777,6 +1801,7 @@
           <div class="sub">Müşteri hesabı ve sayaçları</div>
         </div>
         <div class="head-actions">
+          ${isAdmin() && customer.pending_meter_count > 0 ? `<button class="btn warn" id="custQMatch">${IC_SEARCH.replace('class="ic"', 'class="ic"')} Karantina eşleştir</button>` : ""}
           ${isAdmin() ? `<button class="btn" id="custKeys">API anahtarları</button>` : ""}
           <button class="btn primary" id="custAddMeter"><svg viewBox="0 0 24 24" class="ic"><path d="M12 5v14M5 12h14"/></svg>Sayaç ekle</button>
         </div>
@@ -1796,6 +1821,8 @@
     });
     const keysBtn = $("#custKeys");
     if (keysBtn) keysBtn.addEventListener("click", () => openApiKeysModal(customer));
+    const qBtn = $("#custQMatch");
+    if (qBtn) qBtn.addEventListener("click", () => openQuarantineLinkModal(customerId, customer.name, () => renderCustomerDetail(customerId)));
     $$("[data-open-sn]", view).forEach((b) => b.addEventListener("click", (e) => {
       e.stopPropagation();
       navigate(`#/device/${encodeURIComponent(b.dataset.openSn)}`);
@@ -1805,6 +1832,183 @@
       navigate(`#/device/${encodeURIComponent(tr.dataset.sn)}`);
     }));
     state.refresher = (s) => renderCustomerDetail(customerId, s);
+  }
+
+  async function downloadCustomerImportTemplate() {
+    try {
+      const text = await api("GET", "/customers/import/template", undefined, { rawText: true });
+      const blob = new Blob(["\uFEFF", text], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "musteri-sayac-sablonu.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+      toast("Şablon indirildi", "Excel ile açıp doldurun", "success");
+    } catch (e) { toast("Hata", e.message, "error"); }
+  }
+
+  function openCustomerImportModal() {
+    modalMount.innerHTML = `
+      <div class="modal-backdrop"><div class="modal xl">
+        <div class="modal-head"><h3>Toplu müşteri yükleme</h3><button type="button" class="modal-close" id="ciClose" aria-label="Kapat">${IC_CLOSE}</button></div>
+        <p class="muted">Excel şablonunu doldurup <strong>CSV olarak kaydedin</strong> veya aşağıya yapıştırın. Aynı müşteri için her sayaç ayrı satırdır (müşteri bilgileri tekrarlanır).</p>
+        <div class="panel-inset import-help">
+          <strong>Şablon sütunları:</strong> musteri_adi · telefon · eposta · baglanti (panel/api) · kullanici · parola · seri_no · daire_dukkan · usage (prepaid/postpaid) · not
+        </div>
+        <div class="form-grid two" style="margin-bottom:12px">
+          <label>Dosya<input type="file" id="ciFile" accept=".csv,text/csv,.txt" /></label>
+          <button class="btn sm" id="ciTpl" style="align-self:end">Şablonu indir</button>
+        </div>
+        <textarea id="ciText" rows="8" style="width:100%" placeholder="CSV içeriğini buraya yapıştırın…"></textarea>
+        <div id="ciPreview"></div>
+        <div class="modal-actions"><button class="btn" id="ciCancel">Vazgeç</button><button class="btn" id="ciPreviewBtn">Önizle</button><button class="btn primary" id="ciConfirm" hidden>Onayla ve yükle</button></div>
+      </div></div>`;
+    let previewData = null;
+    const previewEl = $("#ciPreview");
+    const confirmBtn = $("#ciConfirm");
+    $("#ciClose").addEventListener("click", closeModal);
+    $("#ciCancel").addEventListener("click", closeModal);
+    $("#ciTpl").addEventListener("click", downloadCustomerImportTemplate);
+    $("#ciFile").addEventListener("change", async (e) => {
+      const f = e.target.files[0];
+      if (f) $("#ciText").value = await f.text();
+    });
+    const renderPreview = (data) => {
+      previewData = data;
+      const errs = (data.errors || []).map((e) => `<li>Satır ${e.rowNum}: ${esc(e.message)}</li>`).join("");
+      const custHtml = (data.customers || []).map((c, ci) => {
+        const bad = (c.errors || []).length;
+        const meterRows = (c.meters || []).map((m, mi) => {
+          const q = m.quarantineMatch;
+          const qOpts = (m.quarantineOptions || []).length;
+          const qBadge = q
+            ? `<span class="pill warn sm">Karantina: ${esc(q.sn)}</span>`
+            : qOpts > 0
+              ? `<span class="pill off sm">${qOpts} aday</span>`
+              : `<span class="muted">eşleşme yok</span>`;
+          const canLink = !!q;
+          return `<tr>
+            <td class="mono">${esc(m.sn)}</td>
+            <td>${esc(m.unitNo || "—")}</td>
+            <td>${esc(METER_USAGE_LABEL[m.meterUsage] || m.meterUsage)}</td>
+            <td>${qBadge}</td>
+            <td>${canLink ? `<label class="check sm"><input type="checkbox" class="ci-link" data-ci="${ci}" data-mi="${mi}" checked /> Eşleştir</label>` : "—"}</td>
+          </tr>`;
+        }).join("");
+        return `<div class="import-cust-block">
+          <div class="import-cust-head"><b>${esc(c.name)}</b> · ${esc(c.phone)} · ${c.integrationMode === "api" ? "3. parti API" : "Yerel panel"}
+            ${bad ? `<span class="pill bad sm">${bad} hata</span>` : `<span class="pill on sm">${(c.meters || []).length} sayaç</span>`}</div>
+          ${bad ? `<div class="muted">${c.errors.map((x) => esc(x)).join(" · ")}</div>` : ""}
+          ${meterRows ? `<div class="table-wrap"><table class="data sm"><thead><tr><th>Seri no</th><th>Daire/Dükkan</th><th>Usage</th><th>Karantina</th><th></th></tr></thead><tbody>${meterRows}</tbody></table></div>` : ""}
+        </div>`;
+      }).join("");
+      previewEl.innerHTML = `
+        ${errs ? `<div class="panel-inset bad-soft"><ul class="plain">${errs}</ul></div>` : ""}
+        <div class="import-preview">${custHtml || `<p class="empty">Önizlenecek kayıt yok</p>`}</div>`;
+      confirmBtn.hidden = !(data.customers || []).some((c) => !(c.errors || []).length);
+    };
+    $("#ciPreviewBtn").addEventListener("click", async () => {
+      const text = ($("#ciText").value || "").trim();
+      if (!text) { toast("Boş", "CSV içeriği gerekli", "warn"); return; }
+      try {
+        const data = await api("POST", "/customers/import/preview", text, { asText: true });
+        renderPreview(data);
+        toast("Önizleme hazır", `${(data.customers || []).length} müşteri · ${data.totalRows} satır`, "success");
+      } catch (e) { toast("Önizleme hatası", e.message, "error"); }
+    });
+    confirmBtn.addEventListener("click", async () => {
+      if (!previewData) return;
+      const customers = (previewData.customers || []).filter((c) => !(c.errors || []).length).map((c, ci) => ({
+        name: c.name,
+        phone: c.phone,
+        email: c.email,
+        notes: c.notes,
+        integrationMode: c.integrationMode,
+        username: c.username,
+        password: c.password,
+        meters: (c.meters || []).map((m, mi) => {
+          const linkEl = $(`.ci-link[data-ci="${ci}"][data-mi="${mi}"]`, previewEl);
+          const linkQuarantine = !!(linkEl && linkEl.checked && m.quarantineMatch);
+          return {
+            sn: m.sn,
+            unitNo: m.unitNo,
+            meterUsage: m.meterUsage,
+            linkQuarantine,
+            quarantineSn: linkQuarantine && m.quarantineMatch ? m.quarantineMatch.sn : null
+          };
+        })
+      }));
+      try {
+        const r = await api("POST", "/customers/import/confirm", { customers });
+        const failMsg = (r.failed || []).length ? ` · ${r.failed.length} hata` : "";
+        toast("Yükleme tamam", `${r.customersCreated} müşteri · ${r.metersRegistered} sayaç · ${r.quarantineLinked} karantina eşleşmesi${failMsg}`, "success");
+        closeModal();
+        renderCustomers();
+      } catch (e) { toast("Yükleme hatası", e.message, "error"); }
+    });
+  }
+
+  async function openQuarantineLinkModal(customerId, customerName, onDone) {
+    modalMount.innerHTML = `<div class="modal-backdrop"><div class="modal lg"><div class="loading">Karantina taranıyor…</div></div></div>`;
+    let items;
+    try {
+      const res = await api("GET", `/customers/${encodeURIComponent(customerId)}/quarantine-matches`);
+      items = res.items || [];
+    } catch (e) {
+      closeModal();
+      toast("Hata", e.message, "error");
+      return;
+    }
+    if (!items.length) {
+      closeModal();
+      toast("Eşleşme yok", "Bağlantı bekleyen sayaç bulunamadı veya karantinada aday yok", "warn");
+      return;
+    }
+    const rows = items.map((it, idx) => {
+      const options = it.quarantineOptions || [];
+      const defaultSn = it.quarantineMatch?.sn || (options[0] && options[0].sn) || "";
+      const opts = options.length
+        ? options.map((o) => `<option value="${esc(o.sn)}" ${o.sn === defaultSn ? "selected" : ""}>${esc(o.sn)}${o.model ? ` · ${esc(o.model)}` : ""}</option>`).join("")
+        : `<option value="">— aday yok —</option>`;
+      const hasMatch = options.length > 0;
+      return `<tr data-idx="${idx}">
+        <td class="mono">${esc(it.expectedSn)}</td>
+        <td>${esc(it.unitNo || "—")}</td>
+        <td>${hasMatch ? `<select class="ql-pick" data-idx="${idx}">${opts}</select>` : `<span class="muted">karantinada yok</span>`}</td>
+        <td>${hasMatch ? `<label class="check sm"><input type="checkbox" class="ql-use" data-idx="${idx}" ${it.quarantineMatch ? "checked" : ""} /> Eşleştir</label>` : ""}</td>
+      </tr>`;
+    }).join("");
+    modalMount.innerHTML = `
+      <div class="modal-backdrop"><div class="modal lg">
+        <div class="modal-head"><h3>Karantina eşleştir · ${esc(customerName)}</h3><button type="button" class="modal-close" id="qlClose" aria-label="Kapat">${IC_CLOSE}</button></div>
+        <p class="muted">Bağlantı bekleyen sayaçlar karantinadaki cihazlarla seri numarası (veya son hane) üzerinden eşleştirilir. Onayladıktan sonra sayaç müşteriye bağlanır.</p>
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Beklenen SN</th><th>Daire/Dükkan</th><th>Karantina adayı</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+        <div class="modal-actions"><button class="btn" id="qlCancel">Vazgeç</button><button class="btn primary" id="qlApply">Seçilenleri eşleştir</button></div>
+      </div></div>`;
+    $("#qlClose").addEventListener("click", closeModal);
+    $("#qlCancel").addEventListener("click", closeModal);
+    $("#qlApply").addEventListener("click", async () => {
+      const links = [];
+      items.forEach((it, idx) => {
+        const use = $(`.ql-use[data-idx="${idx}"]`, modalMount);
+        const pick = $(`.ql-pick[data-idx="${idx}"]`, modalMount);
+        if (use && use.checked && pick && pick.value) {
+          links.push({ expectedSn: it.expectedSn, quarantineSn: pick.value });
+        }
+      });
+      if (!links.length) { toast("Seçim yok", "En az bir eşleştirme işaretleyin", "warn"); return; }
+      try {
+        const r = await api("POST", `/customers/${encodeURIComponent(customerId)}/quarantine-link`, { links });
+        toast("Eşleştirildi", `${r.linked} sayaç bağlandı${(r.failed || []).length ? ` · ${r.failed.length} hata` : ""}`, "success");
+        closeModal();
+        if (onDone) onDone();
+      } catch (e) { toast("Hata", e.message, "error"); }
+    });
   }
 
   function openCustomerModal() {

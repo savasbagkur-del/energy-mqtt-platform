@@ -48,6 +48,11 @@ import {
   getCustomerDetailById,
   listCustomersOverview,
   updateCustomer,
+  CUSTOMER_IMPORT_TEMPLATE,
+  previewCustomerImport,
+  applyCustomerImport,
+  listCustomerQuarantineLinkCandidates,
+  linkCustomerQuarantineMeters,
   listApiKeys,
   createApiKey,
   revokeApiKey,
@@ -1459,6 +1464,48 @@ app.post("/customers", requireAdmin, async (req, res) => {
   }
 });
 
+// Customer bulk import (CSV / Excel saved as CSV).
+app.get("/customers/import/template", requireAdmin, (_req, res) => {
+  const bom = "\uFEFF";
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="musteri-sayac-sablonu.csv"');
+  res.status(200).send(bom + CUSTOMER_IMPORT_TEMPLATE);
+});
+
+app.post("/customers/import/preview", requireAdmin, async (req, res) => {
+  try {
+    let rows: Array<Record<string, string>> = [];
+    if (typeof req.body === "string") {
+      rows = parseCsv(req.body);
+    } else if (req.body && typeof req.body === "object" && typeof (req.body as Record<string, unknown>).csv === "string") {
+      rows = parseCsv(String((req.body as Record<string, unknown>).csv));
+    } else {
+      res.status(400).json({ error: "expected_csv_text" });
+      return;
+    }
+    res.status(200).json(await previewCustomerImport(dbPool, rows));
+  } catch (error) {
+    console.error("[api] failed to preview customer import", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_preview_customer_import" });
+  }
+});
+
+app.post("/customers/import/confirm", requireAdmin, async (req, res) => {
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+  const customers = Array.isArray(body.customers) ? body.customers : null;
+  if (!customers) {
+    res.status(400).json({ error: "customers_required" });
+    return;
+  }
+  try {
+    const result = await applyCustomerImport(dbPool, customers as Parameters<typeof applyCustomerImport>[1], hashPassword);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("[api] failed to confirm customer import", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_import_customers" });
+  }
+});
+
 // Customers screen: each customer enriched with device counts + API-key/usage so the UI can
 // show how the customer is connected (panel / api / both).
 app.get("/customers/overview", async (req, res) => {
@@ -1488,6 +1535,46 @@ app.get("/customers/:id", async (req, res) => {
   } catch (error) {
     console.error("[api] failed to get customer", { id, message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_get_customer" });
+  }
+});
+
+app.get("/customers/:id/quarantine-matches", requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "id_required" });
+    return;
+  }
+  try {
+    const items = await listCustomerQuarantineLinkCandidates(dbPool, id);
+    res.status(200).json({ items });
+  } catch (error) {
+    console.error("[api] failed to list quarantine matches", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_list_quarantine_matches" });
+  }
+});
+
+app.post("/customers/:id/quarantine-link", requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "id_required" });
+    return;
+  }
+  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+  const links = Array.isArray(body.links) ? body.links : null;
+  if (!links) {
+    res.status(400).json({ error: "links_required" });
+    return;
+  }
+  try {
+    const result = await linkCustomerQuarantineMeters(
+      dbPool,
+      id,
+      links as Array<{ expectedSn: string; quarantineSn: string }>
+    );
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("[api] failed to link quarantine meters", { message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_link_quarantine_meters" });
   }
 });
 

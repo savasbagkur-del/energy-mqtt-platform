@@ -23,6 +23,10 @@ export interface CustomerOverviewRow {
   created_at: string;
   /** Earliest commissioned_at among this customer's meters (first activation). */
   activated_at: string | null;
+  /** Meters assigned but never communicated (awaiting field connection). */
+  pending_meter_count: number;
+  /** Pending meters with a quarantined SN match available to link. */
+  linkable_quarantine_count: number;
 }
 
 /**
@@ -44,7 +48,16 @@ export const listCustomersOverview = async (
        ) AS online_count,
        COUNT(DISTINCT k.id) FILTER (WHERE k.is_active) AS active_key_count,
        MAX(k.last_used_at) AS last_api_used_at,
-       MIN(d.commissioned_at) FILTER (WHERE d.commissioned_at IS NOT NULL) AS activated_at
+       MIN(d.commissioned_at) FILTER (WHERE d.commissioned_at IS NOT NULL) AS activated_at,
+       COUNT(DISTINCT d.sn) FILTER (WHERE d.last_seen_at IS NULL) AS pending_meter_count,
+       COUNT(DISTINCT d.sn) FILTER (
+         WHERE d.last_seen_at IS NULL
+           AND d.registry_status <> 'quarantined'
+           AND EXISTS (
+             SELECT 1 FROM devices q
+             WHERE q.registry_status = 'quarantined' AND q.sn = d.sn
+           )
+       ) AS linkable_quarantine_count
      FROM customers c
      LEFT JOIN devices d ON d.customer_id = c.id
      LEFT JOIN device_latest_state ls ON ls.sn = d.sn
@@ -67,7 +80,9 @@ export const listCustomersOverview = async (
     active_key_count: int(r.active_key_count),
     last_api_used_at: (r.last_api_used_at as string | null) ?? null,
     created_at: String(r.created_at),
-    activated_at: (r.activated_at as string | null) ?? null
+    activated_at: (r.activated_at as string | null) ?? null,
+    pending_meter_count: int(r.pending_meter_count),
+    linkable_quarantine_count: int(r.linkable_quarantine_count)
   }));
 };
 
@@ -88,7 +103,16 @@ export const getCustomerDetailById = async (
        ) AS online_count,
        COUNT(DISTINCT k.id) FILTER (WHERE k.is_active) AS active_key_count,
        MAX(k.last_used_at) AS last_api_used_at,
-       MIN(d.commissioned_at) FILTER (WHERE d.commissioned_at IS NOT NULL) AS activated_at
+       MIN(d.commissioned_at) FILTER (WHERE d.commissioned_at IS NOT NULL) AS activated_at,
+       COUNT(DISTINCT d.sn) FILTER (WHERE d.last_seen_at IS NULL) AS pending_meter_count,
+       COUNT(DISTINCT d.sn) FILTER (
+         WHERE d.last_seen_at IS NULL
+           AND d.registry_status <> 'quarantined'
+           AND EXISTS (
+             SELECT 1 FROM devices q
+             WHERE q.registry_status = 'quarantined' AND q.sn = d.sn
+           )
+       ) AS linkable_quarantine_count
      FROM customers c
      LEFT JOIN devices d ON d.customer_id = c.id
      LEFT JOIN device_latest_state ls ON ls.sn = d.sn
@@ -114,7 +138,9 @@ export const getCustomerDetailById = async (
     active_key_count: int(r.active_key_count),
     last_api_used_at: (r.last_api_used_at as string | null) ?? null,
     created_at: String(r.created_at),
-    activated_at: (r.activated_at as string | null) ?? null
+    activated_at: (r.activated_at as string | null) ?? null,
+    pending_meter_count: int(r.pending_meter_count),
+    linkable_quarantine_count: int(r.linkable_quarantine_count)
   };
 };
 

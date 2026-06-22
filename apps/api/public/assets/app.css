@@ -588,6 +588,14 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .sn-pick:last-child { border-bottom: none; }
 .sn-pick:hover { background: var(--panel-2); }
 .sn-pick-act { font-size: 11.5px; font-weight: 700; color: var(--brand-text); background: var(--brand-soft); padding: 3px 9px; border-radius: 999px; flex: none; }
+.import-help { font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+.import-preview { display: flex; flex-direction: column; gap: 14px; max-height: 42vh; overflow: auto; margin-top: 14px; }
+.import-cust-block { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel-2); }
+.import-cust-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.panel-inset.bad-soft { background: var(--bad-soft); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+ul.plain { margin: 0; padding-left: 18px; }
+table.data.sm th, table.data.sm td { font-size: 12.5px; padding: 8px 10px; }
+.btn .ic.sm { width: 15px; height: 15px; }
 
 /* presence uptime timeline (device detail) */
 .pt-summary { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 12.5px; flex-wrap: wrap; }

@@ -5,6 +5,7 @@ export * from "./client-bindings.js";
 export * from "./command-diagnostics.js";
 export * from "./commands.js";
 export * from "./customers.js";
+export * from "./customer-import.js";
 export * from "./desired-state.js";
 export * from "./device-cadence.js";
 export * from "./diagnostics.js";

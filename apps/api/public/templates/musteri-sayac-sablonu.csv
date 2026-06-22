@@ -1,0 +1,4 @@
+musteri_adi,telefon,eposta,baglanti,kullanici,parola,seri_no,daire_dukkan,usage,not
+Örnek Müşteri A,05551234567,ornek@mail.com,panel,ornek.kullanici,Sifre123!,24042809890001,A-12,prepaid,
+Örnek Müşteri A,05551234567,ornek@mail.com,panel,ornek.kullanici,Sifre123!,24042809890002,B-03,prepaid,
+Örnek Müşteri B,05559876543,,api,,,24042809890003,Dükkan 1,prepaid,3. parti yazılım
