@@ -36,3 +36,7 @@ Thumbs.db
 cal.json
 endurance.json
 *_results.json
+
+# local deploy helper (do not commit)
+_deploy.sh
+_*.sh
