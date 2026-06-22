@@ -1955,9 +1955,9 @@
               ${fld("Müşteri Adı", esc(c.name))}
               ${fld("Telefon", esc(c.phone), true)}
               ${fld("Bağlantı Tipi", esc(integLabel))}
-              ${fld("Giriş kullanıcı adı", c.integrationMode === "panel" ? esc(c.username || "—") : "—", true)}
+              ${fld("Giriş kullanıcı adı", esc(c.username || "—"), true)}
               ${fld("E-posta", esc(c.email || "—"))}
-              ${fld("Parola", c.integrationMode === "panel" && c.hasPassword ? "••••••••" : "—")}
+              ${fld("Parola", c.hasPassword ? "••••••••" : "—")}
               ${fld("Müşteri Notu", esc(c.notes || "—"))}
             </div>
             ${bad ? `<div class="panel-inset bad-soft import-block-err">${c.errors.map((x) => esc(x)).join(" · ")}</div>` : ""}

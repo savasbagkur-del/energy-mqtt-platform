@@ -204,7 +204,10 @@ export const createCustomerWithAccount = async (
   try {
     await client.query("BEGIN");
     const integrationMode = input.integrationMode === "api" ? "api" : "panel";
-    const panelOn = integrationMode === "panel" && input.panelEnabled !== false;
+    const hasCreds = Boolean(input.username?.trim() && input.passwordHash);
+    const panelOn =
+      hasCreds &&
+      (integrationMode === "panel" ? input.panelEnabled !== false : input.panelEnabled === true);
     const custRes = await client.query(
       `INSERT INTO customers (name, phone, email, notes, panel_enabled, integration_mode)
        VALUES ($1, $2, $3, $4, $5, $6)

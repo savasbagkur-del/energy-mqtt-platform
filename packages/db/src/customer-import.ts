@@ -309,6 +309,11 @@ export const previewCustomerImport = async (
     if (g.integrationMode === "panel") {
       if (!g.username || g.username.length < 3) groupErrors.push("panel modu: kullanici en az 3 karakter");
       if (!g.password || g.password.length < 8) groupErrors.push("panel modu: parola en az 8 karakter");
+    } else {
+      const hasUser = Boolean(g.username?.trim());
+      const hasPass = g.password.length >= 8;
+      if (hasUser && !hasPass) groupErrors.push("parola en az 8 karakter (kullanici adi dolu)");
+      if (hasPass && (!hasUser || g.username.length < 3)) groupErrors.push("kullanici en az 3 karakter (parola dolu)");
     }
 
     const meters: CustomerImportMeterPreview[] = [];
@@ -348,7 +353,10 @@ export const applyCustomerImport = async (
   for (const c of customers) {
     try {
       const integrationMode = c.integrationMode === "api" ? "api" : "panel";
-      const panelOn = integrationMode === "panel";
+      const username = (c.username || "").trim();
+      const password = c.password || "";
+      const hasPanelCreds = username.length >= 3 && (password.length >= 8 || Boolean(c.passwordHash));
+      const panelOn = integrationMode === "panel" || hasPanelCreds;
       const metersInput: CreateCustomerAccountInput["meters"] = [];
 
       for (const m of c.meters ?? []) {
@@ -377,9 +385,9 @@ export const applyCustomerImport = async (
         notes: c.notes ?? null,
         integrationMode,
         panelEnabled: panelOn,
-        username: panelOn ? (c.username || "").trim() : "",
+        username: panelOn ? username : "",
         passwordHash: panelOn
-          ? (c.passwordHash || (c.password ? hashPassword(c.password) : ""))
+          ? (c.passwordHash || (password ? hashPassword(password) : ""))
           : "",
         meters: metersInput
       });
