@@ -228,11 +228,21 @@ export const findQuarantineMatchesForSn = async (
   const trimmed = normalizeImportSn(sn);
   if (!trimmed) return { best: null, options: [] };
 
+  const pickBest = (rows: Array<{ sn: string; model: string | null; last_seen_at: string | null }>) => {
+    const options = rows.map((r) =>
+      toMatchInfo(r, r.sn === trimmed || normalizeImportSn(r.sn) === trimmed ? "exact" : "suffix")
+    );
+    const exactIn = options.find((o) => o.sn === trimmed || normalizeImportSn(o.sn) === trimmed);
+    if (exactIn) return { best: exactIn, options };
+    if (options.length === 1) return { best: options[0]!, options };
+    return { best: null, options };
+  };
+
+  // 1) Exact quarantined SN (no row cap — one SN = one row)
   const exactQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
     `SELECT d.sn, d.model, d.last_seen_at
      FROM devices d
-     WHERE d.registry_status = 'quarantined' AND d.sn = $1
-     LIMIT 1`,
+     WHERE d.registry_status = 'quarantined' AND d.sn = $1`,
     [trimmed]
   );
   if (exactQ.rows[0]) {
@@ -240,30 +250,24 @@ export const findQuarantineMatchesForSn = async (
     return { best: info, options: [info] };
   }
 
+  // 2) Digit-normalized exact (handles formatting differences)
   const digits = trimmed.replace(/\D/g, "");
-  if (digits && digits !== trimmed) {
+  if (digits) {
     const digitQ = await pool.query<{ sn: string; model: string | null; last_seen_at: string | null }>(
       `SELECT d.sn, d.model, d.last_seen_at
        FROM devices d
        WHERE d.registry_status = 'quarantined'
          AND regexp_replace(d.sn, '[^0-9]', '', 'g') = $1
-       ORDER BY (d.sn = $2) DESC, d.last_seen_at DESC NULLS LAST
-       LIMIT 5`,
+       ORDER BY (d.sn = $2) DESC, d.last_seen_at DESC NULLS LAST`,
       [digits, trimmed]
     );
-    if (digitQ.rows.length === 1) {
-      const info = toMatchInfo(digitQ.rows[0]!, digitQ.rows[0]!.sn === trimmed ? "exact" : "suffix");
-      return { best: info, options: [info] };
-    }
-    if (digitQ.rows.length > 1) {
-      const options = digitQ.rows.map((r) => toMatchInfo(r, r.sn === trimmed ? "exact" : "suffix"));
-      const exactIn = options.find((o) => o.sn === trimmed) ?? options.find((o) => normalizeImportSn(o.sn) === trimmed);
-      if (exactIn) return { best: exactIn, options };
-      return { best: null, options };
-    }
+    if (digitQ.rows.length) return pickBest(digitQ.rows);
   }
 
-  const tailLen = trimmed.length >= 10 ? 4 : 2;
+  // 3) Suffix fallback — only for short / partial SN (not full meter serials)
+  if (trimmed.length >= 10) return { best: null, options: [] };
+
+  const tailLen = trimmed.length >= 6 ? 4 : 2;
   const tail = trimmed.slice(-tailLen);
   if (tail.length < 2) return { best: null, options: [] };
 
@@ -272,19 +276,12 @@ export const findQuarantineMatchesForSn = async (
      FROM devices d
      WHERE d.registry_status = 'quarantined' AND d.sn LIKE $1
      ORDER BY
-       CASE WHEN d.sn = $2 THEN 0 WHEN d.sn LIKE $3 THEN 1 ELSE 2 END,
-       d.last_seen_at DESC NULLS LAST
-     LIMIT 50`,
-    [`%${tail}`, trimmed, `%${tail}`]
+       CASE WHEN d.sn = $2 THEN 0 ELSE 1 END,
+       d.last_seen_at DESC NULLS LAST`,
+    [`%${tail}`, trimmed]
   );
-  const options = res.rows
-    .filter((r) => r.sn.toLowerCase().endsWith(tail.toLowerCase()))
-    .map((r) => toMatchInfo(r, r.sn === trimmed ? "exact" : "suffix"));
-
-  const exactInList = options.find((o) => o.sn === trimmed || normalizeImportSn(o.sn) === trimmed);
-  if (exactInList) return { best: exactInList, options };
-  if (options.length === 1) return { best: options[0]!, options };
-  return { best: null, options };
+  const suffixRows = res.rows.filter((r) => r.sn.toLowerCase().endsWith(tail.toLowerCase()));
+  return pickBest(suffixRows);
 };
 
 export const previewCustomerImport = async (
