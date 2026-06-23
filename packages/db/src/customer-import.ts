@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { Pool } from "pg";
 import { getDeviceRegistry, registerDevice } from "./device-registry.js";
 import { createCustomerWithAccount, type CreateCustomerAccountInput } from "./customers.js";
@@ -8,6 +9,9 @@ export const CUSTOMER_IMPORT_TEMPLATE = [
   "Örnek Müşteri A,05551234567,ornek@mail.com,panel,ornek.kullanici,Sifre123!,24042809890002,B-03,prepaid,",
   "Örnek Müşteri B,05559876543,,api,,,24042809890003,Dükkan 1,prepaid,3. parti yazılım"
 ].join("\r\n");
+
+const md5Hex = (value: string): string =>
+  crypto.createHash("md5").update(value, "utf8").digest("hex");
 
 const pick = (row: Record<string, string>, ...keys: string[]): string => {
   for (const k of keys) {
@@ -382,6 +386,7 @@ export const applyCustomerImport = async (
         passwordHash: panelOn
           ? (c.passwordHash || (password ? hashPassword(password) : ""))
           : "",
+        passwordMd5: panelOn && password ? md5Hex(password) : null,
         meters: metersInput
       });
 

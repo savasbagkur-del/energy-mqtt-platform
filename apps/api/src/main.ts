@@ -2,6 +2,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import express from "express";
 import { buildCustomerImportTemplate, parseCustomerImportXlsx } from "./customer-import-xlsx.js";
+import { EASYTECH_PATH_SET, md5Hex, registerEasyTechRoutes } from "./easytech/index.js";
 import { CostExplorerClient, GetCostAndUsageCommand, GetCostForecastCommand } from "@aws-sdk/client-cost-explorer";
 import { appConfig, generateCommandMsgid } from "@communication/core";
 import {
@@ -59,6 +60,7 @@ import {
   revokeApiKey,
   findActiveApiKeyByHash,
   touchApiKeyUsage,
+  findDeviceSnByCustomerRoom,
   registerDevice,
   bulkRegisterDevices,
   getDeviceRegistry,
@@ -259,6 +261,11 @@ app.use((req, res, next) => {
     next();
     return;
   }
+  // EasyTech Prepaid API (3rd-party gateway): own token auth on each route.
+  if (EASYTECH_PATH_SET.has(req.path)) {
+    next();
+    return;
+  }
   // Customer integration namespace: authenticated by a per-customer API key (X-API-Key or Bearer),
   // resolved against customer_api_keys. These callers are scoped to their own customer's data.
   if (req.path.startsWith("/api/v1/")) {
@@ -388,6 +395,9 @@ app.post("/auth/login", async (req, res) => {
       res.status(401).json({ error: "invalid_credentials" });
       return;
     }
+    if (!user.password_md5) {
+      void updatePanelUser(dbPool, user.id, { passwordMd5: md5Hex(password) }).catch(() => undefined);
+    }
     const token = signJwt({ sub: user.id, username: user.username, role: user.role });
     void markPanelUserLogin(dbPool, user.id).catch(() => {});
     res.status(200).json({
@@ -433,7 +443,10 @@ app.post("/auth/password", async (req, res) => {
       res.status(401).json({ error: "invalid_current_password" });
       return;
     }
-    await updatePanelUser(dbPool, u.id, { passwordHash: hashPassword(newPassword) });
+    await updatePanelUser(dbPool, u.id, {
+      passwordHash: hashPassword(newPassword),
+      passwordMd5: md5Hex(newPassword)
+    });
     res.status(200).json({ ok: true });
   } catch (error) {
     console.error("[api] change password failed", { message: error instanceof Error ? error.message : error });
@@ -475,7 +488,12 @@ app.post("/admin/users", requireAdmin, async (req, res) => {
       res.status(409).json({ error: "username_taken" });
       return;
     }
-    const user = await createPanelUser(dbPool, { username, passwordHash: hashPassword(password), role });
+    const user = await createPanelUser(dbPool, {
+      username,
+      passwordHash: hashPassword(password),
+      passwordMd5: md5Hex(password),
+      role
+    });
     res.status(201).json({ user });
   } catch (error) {
     console.error("[api] create user failed", { message: error instanceof Error ? error.message : error });
@@ -486,13 +504,14 @@ app.post("/admin/users", requireAdmin, async (req, res) => {
 app.patch("/admin/users/:id", requireAdmin, async (req, res) => {
   const id = req.params.id ?? "";
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const patch: { passwordHash?: string; role?: PanelUserRole; isActive?: boolean } = {};
+  const patch: { passwordHash?: string; passwordMd5?: string | null; role?: PanelUserRole; isActive?: boolean } = {};
   if (typeof body.password === "string") {
     if (body.password.length < 8) {
       res.status(400).json({ error: "weak_password", detail: "min 8 characters" });
       return;
     }
     patch.passwordHash = hashPassword(body.password);
+    patch.passwordMd5 = md5Hex(body.password);
   }
   if (body.role !== undefined) {
     if (!isValidRole(body.role)) {
@@ -827,6 +846,13 @@ app.post("/devices/:sn/commands/force-switch-0", requireControl, (req, res) => {
 
 app.post("/devices/:sn/commands/force-switch-1", requireControl, (req, res) => {
   void handleForceSwitch(req, res, 1);
+});
+
+registerEasyTechRoutes(app, {
+  pool: dbPool,
+  jwtSecret,
+  setDesiredSwitch: async (sn, value, setBy) => setDesiredSwitchForDevice(sn, value, setBy),
+  findDeviceByRoom: (customerId, roomNo) => findDeviceSnByCustomerRoom(dbPool, customerId, roomNo)
 });
 
 app.put("/devices/:sn/desired/switch", requireControl, async (req, res) => {
@@ -1441,6 +1467,7 @@ app.post("/customers", requireAdmin, async (req, res) => {
       notes: typeof body.notes === "string" ? body.notes.trim() || null : null,
       username,
       passwordHash: hashPassword(password),
+      passwordMd5: md5Hex(password),
       integrationMode,
       panelEnabled,
       meters

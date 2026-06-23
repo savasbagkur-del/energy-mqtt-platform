@@ -2150,7 +2150,7 @@
       panelBlock.style.display = "";
       modeHint.textContent = integrationMode === "panel"
         ? "Müşteri bu panelden giriş yaparak sayaçlarını görür."
-        : "3. parti yazılım API anahtarı ile bağlanır. Müşteri aşağıdaki giriş bilgileriyle bu panele de girebilir — 3. partiye API anahtarı verin, panel parolasını paylaşmayın veya maskeleyin.";
+        : "3. parti yazılım EasyTech uyumlu gateway API kullanır (/login, /getMeterList, /getMeterInfo, /meterControl). Veri MQTT’den gelir; komutlar sayaca MQTT ile gider. Panel giriş bilgisi 3. parti /login için kullanılır (parola MD5).";
       $$("#cuModeSeg .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === integrationMode));
     };
     $$("#cuModeSeg .seg-btn").forEach((b) => b.addEventListener("click", () => {

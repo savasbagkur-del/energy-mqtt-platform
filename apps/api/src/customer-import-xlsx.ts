@@ -180,7 +180,7 @@ const writeCustomerBlock = (ws: ExcelJS.Worksheet, startRow: number, blockNo: nu
   ws.mergeCells(R + 4, 5, R + 4, 6);
   mergeStyle(ws, R + 4, 7, R + 4, 8, false);
 
-  styleLabel(ws.getCell(R + 5, 1), "Parola");
+  styleLabel(ws.getCell(R + 5, 1), "Parola *");
   ws.mergeCells(R + 5, 1, R + 5, 2);
   mergeStyle(ws, R + 5, 3, R + 5, 4, false);
   styleLabel(ws.getCell(R + 5, 5), "Müşteri Notu");

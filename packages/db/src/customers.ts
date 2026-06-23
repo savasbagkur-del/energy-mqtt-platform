@@ -183,6 +183,8 @@ export interface CreateCustomerAccountInput {
   notes?: string | null;
   username: string;
   passwordHash: string;
+  /** MD5(hex) of plain password — required for EasyTech /login when integrationMode is api. */
+  passwordMd5?: string | null;
   /** panel = local UI login; api = third-party software via customer API keys. */
   integrationMode?: "panel" | "api";
   panelEnabled?: boolean;
@@ -224,10 +226,10 @@ export const createCustomerWithAccount = async (
     let panelUser: PanelUserPublic | null = null;
     if (panelOn) {
       const puRes = await client.query(
-        `INSERT INTO panel_users (username, password_hash, role, customer_id)
-         VALUES ($1, $2, 'viewer', $3)
+        `INSERT INTO panel_users (username, password_hash, password_md5, role, customer_id)
+         VALUES ($1, $2, $3, 'viewer', $4)
          RETURNING *`,
-        [input.username, input.passwordHash, customerId]
+        [input.username, input.passwordHash, input.passwordMd5 ?? null, customerId]
       );
       panelUser = {
         id: String(puRes.rows[0]!.id),

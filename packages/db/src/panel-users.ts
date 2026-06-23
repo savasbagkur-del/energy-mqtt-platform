@@ -6,6 +6,7 @@ export interface PanelUserRow {
   id: string;
   username: string;
   password_hash: string;
+  password_md5: string | null;
   role: PanelUserRole;
   is_active: boolean;
   customer_id: string | null;
@@ -65,13 +66,19 @@ export const listPanelUsers = async (pool: Pool): Promise<PanelUserPublic[]> => 
 
 export const createPanelUser = async (
   pool: Pool,
-  input: { username: string; passwordHash: string; role: PanelUserRole; customerId?: string | null }
+  input: {
+    username: string;
+    passwordHash: string;
+    passwordMd5?: string | null;
+    role: PanelUserRole;
+    customerId?: string | null;
+  }
 ): Promise<PanelUserPublic> => {
   const res = await pool.query<PanelUserRow>(
-    `INSERT INTO panel_users (username, password_hash, role, customer_id)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO panel_users (username, password_hash, password_md5, role, customer_id)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [input.username, input.passwordHash, input.role, input.customerId ?? null]
+    [input.username, input.passwordHash, input.passwordMd5 ?? null, input.role, input.customerId ?? null]
   );
   return toPublicPanelUser(res.rows[0]!);
 };
@@ -79,17 +86,24 @@ export const createPanelUser = async (
 export const updatePanelUser = async (
   pool: Pool,
   id: string,
-  patch: { passwordHash?: string; role?: PanelUserRole; isActive?: boolean }
+  patch: { passwordHash?: string; passwordMd5?: string | null; role?: PanelUserRole; isActive?: boolean }
 ): Promise<PanelUserPublic | null> => {
   const res = await pool.query<PanelUserRow>(
     `UPDATE panel_users SET
        password_hash = COALESCE($2, password_hash),
-       role = COALESCE($3, role),
-       is_active = COALESCE($4, is_active),
+       password_md5 = COALESCE($3, password_md5),
+       role = COALESCE($4, role),
+       is_active = COALESCE($5, is_active),
        updated_at = NOW()
      WHERE id = $1
      RETURNING *`,
-    [id, patch.passwordHash ?? null, patch.role ?? null, patch.isActive ?? null]
+    [
+      id,
+      patch.passwordHash ?? null,
+      patch.passwordMd5 ?? null,
+      patch.role ?? null,
+      patch.isActive ?? null
+    ]
   );
   const row = res.rows[0];
   return row ? toPublicPanelUser(row) : null;
