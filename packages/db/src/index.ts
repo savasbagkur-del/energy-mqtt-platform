@@ -17,6 +17,7 @@ export * from "./app-settings.js";
 export * from "./presence.js";
 export * from "./inbound-device-state.js";
 export * from "./integration-devices.js";
+export * from "./integration-api-log.js";
 export * from "./last-summary.js";
 export * from "./latest-state.js";
 export * from "./panel-users.js";

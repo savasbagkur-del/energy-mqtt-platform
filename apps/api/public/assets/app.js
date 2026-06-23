@@ -1772,13 +1772,23 @@
 
   async function renderCustomerDetail(customerId, silent) {
     if (!silent) view.innerHTML = `<div class="loading">Yükleniyor…</div>`;
-    let customer, devices;
+    let customer, devices, integrationLogs;
     const win = state.settings.onlineWindowSec;
+    const isApiCustomer = (c) => (c.integration_mode || (c.panel_enabled ? "panel" : "api")) === "api";
     try {
-      [customer, devices] = await Promise.all([
+      const reqs = [
         api("GET", `/customers/${encodeURIComponent(customerId)}?window=${win}`),
         api("GET", `/fleet/devices?customer=${encodeURIComponent(customerId)}&limit=200&window=${win}`)
-      ]);
+      ];
+      if (isAdmin()) {
+        reqs.push(
+          api("GET", `/customers/${encodeURIComponent(customerId)}/integration-logs?limit=50`).catch(() => null)
+        );
+      }
+      const results = await Promise.all(reqs);
+      customer = results[0];
+      devices = results[1];
+      integrationLogs = results[2] || null;
     } catch (e) {
       if (!silent) {
         if (e.status === 404) view.innerHTML = errorBox(new Error("Müşteri bulunamadı"));
@@ -1788,6 +1798,50 @@
     }
     const devItems = devices.items || [];
     const acctRow = (label, val, mono) => `<div class="acct-row"><span class="acct-lbl">${esc(label)}</span><span class="acct-val${mono ? " mono" : ""}">${val}</span></div>`;
+    const integSummary = integrationLogs?.summary;
+    const integItems = integrationLogs?.items || [];
+    const integDirLabel = { auth: "Giriş", read: "Veri okuma", control: "Komut" };
+    const integEndpointLabel = {
+      "/login": "Login",
+      "/getMeterList": "Sayaç listesi",
+      "/getMeterInfo": "Sayaç detayı",
+      "/meterControl": "Aç/Kapa"
+    };
+    const integPanelHtml = isApiCustomer(customer) && isAdmin()
+      ? `<div class="panel">
+        <div class="panel-head"><h2>3. parti API aktivitesi</h2><span class="panel-note">EasyTech gateway · son 50 kayıt</span></div>
+        <div class="panel-pad">
+          <div class="acct-grid" style="margin-bottom:14px">
+            ${acctRow("Son 24 saat", integSummary ? `${nf(integSummary.total_24h)} istek (${nf(integSummary.read_24h)} okuma · ${nf(integSummary.control_24h)} komut · ${nf(integSummary.auth_24h)} giriş)` : "—")}
+            ${acctRow("Son istek", integSummary?.last_at ? timeAgo(integSummary.last_at) : "henüz yok")}
+            ${acctRow("Son başarılı", integSummary?.last_success_at ? timeAgo(integSummary.last_success_at) : "—")}
+          </div>
+          <div class="table-wrap"><table class="data">
+            <thead><tr><th>Zaman</th><th>İşlem</th><th>Endpoint</th><th>Daire/SN</th><th>Komut</th><th>Süre</th><th>Durum</th></tr></thead>
+            <tbody>${integItems.length ? integItems.map((row) => {
+              const target = row.room_no
+                ? esc(row.room_no)
+                : row.sn
+                  ? `<span class="mono">${esc(row.sn)}</span>`
+                  : "—";
+              const sw = row.switch_value === 0 ? "Kapat" : row.switch_value === 1 ? "Aç" : "—";
+              const st = row.success
+                ? `<span class="pill on sm">OK</span>`
+                : `<span class="pill off sm" title="${esc(row.error_msg || "")}">Hata</span>`;
+              return `<tr>
+                <td class="muted">${timeAgo(row.created_at)}</td>
+                <td>${esc(integDirLabel[row.direction] || row.direction)}</td>
+                <td class="mono">${esc(integEndpointLabel[row.endpoint] || row.endpoint)}</td>
+                <td>${target}</td>
+                <td>${sw}</td>
+                <td class="muted">${row.duration_ms != null ? `${row.duration_ms} ms` : "—"}</td>
+                <td>${st}</td>
+              </tr>`;
+            }).join("") : `<tr><td colspan="7" class="empty">Henüz 3. parti API isteği yok. Entegrasyon başlayınca burada görünür.</td></tr>`}</tbody>
+          </table></div>
+        </div>
+      </div>`
+      : "";
     const acctHtml = `
       <div class="panel cust-acct-panel">
         <div class="panel-head"><h2>Hesap detayları</h2><div class="panel-actions">${connBadges(customer)}</div></div>
@@ -1832,6 +1886,7 @@
         </div>
       </div>
       ${acctHtml}
+      ${integPanelHtml}
       <div class="panel">
         <div class="panel-head"><h2>Sayaçlar</h2><span class="panel-note">${nf(devItems.length)} kayıt</span></div>
         <div class="table-wrap"><table class="data">

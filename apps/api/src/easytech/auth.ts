@@ -77,32 +77,49 @@ export const performEasyTechLogin = async (
   jwtSecret: Buffer,
   username: string,
   passwordMd5: string
-): Promise<EasyTechLoginResponse> => {
+): Promise<{
+  response: EasyTechLoginResponse;
+  audit: {
+    customerId: string | null;
+    panelUserId: string | null;
+    username: string;
+  };
+}> => {
+  const audit = { customerId: null as string | null, panelUserId: null as string | null, username };
   const user = await getPanelUserByUsername(pool, username);
   if (!user || !user.is_active || !user.customer_id) {
-    return { success: 0, errorMsg: "invalid_credentials", errorCode: 401 };
+    return { response: { success: 0, errorMsg: "invalid_credentials", errorCode: 401 }, audit };
   }
+  audit.panelUserId = user.id;
+  audit.customerId = String(user.customer_id);
   const custRes = await pool.query<{ integration_mode: string }>(
     "SELECT integration_mode FROM customers WHERE id = $1",
     [user.customer_id]
   );
   if (custRes.rows[0]?.integration_mode !== "api") {
-    return { success: 0, errorMsg: "integration_mode_not_api", errorCode: 403 };
+    return {
+      response: { success: 0, errorMsg: "integration_mode_not_api", errorCode: 403 },
+      audit
+    };
   }
   const storedMd5 = user.password_md5?.toLowerCase() ?? "";
   const presented = passwordMd5.toLowerCase();
   if (!storedMd5 || !safeEqualText(presented, storedMd5)) {
-    return { success: 0, errorMsg: "invalid_credentials", errorCode: 401 };
+    return { response: { success: 0, errorMsg: "invalid_credentials", errorCode: 401 }, audit };
   }
   const base = {
     sub: user.id,
     customerId: String(user.customer_id),
     username: user.username
   };
+  audit.username = user.username;
   void markPanelUserLogin(pool, user.id).catch(() => undefined);
   return {
-    success: 1,
-    userToken: signEasyTechToken(jwtSecret, { ...base, scope: "read" }),
-    adminToken: signEasyTechToken(jwtSecret, { ...base, scope: "control" })
+    response: {
+      success: 1,
+      userToken: signEasyTechToken(jwtSecret, { ...base, scope: "read" }),
+      adminToken: signEasyTechToken(jwtSecret, { ...base, scope: "control" })
+    },
+    audit
   };
 };

@@ -61,6 +61,8 @@ import {
   findActiveApiKeyByHash,
   touchApiKeyUsage,
   findDeviceSnByCustomerRoom,
+  listIntegrationApiLogs,
+  getIntegrationApiLogSummary,
   registerDevice,
   bulkRegisterDevices,
   getDeviceRegistry,
@@ -1669,6 +1671,31 @@ app.get("/customers/:id/api-keys", requireAdmin, async (req, res) => {
   } catch (error) {
     console.error("[api] failed to list api keys", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_list_api_keys" });
+  }
+});
+
+app.get("/customers/:id/integration-logs", requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
+    res.status(400).json({ error: "id_required" });
+    return;
+  }
+  try {
+    const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+    const offset = typeof req.query.offset === "string" ? Number(req.query.offset) : undefined;
+    const filter: import("@communication/db").ListIntegrationApiLogsFilter = { customerId: id };
+    if (limit !== undefined && Number.isFinite(limit)) filter.limit = limit;
+    if (offset !== undefined && Number.isFinite(offset)) filter.offset = offset;
+    const [list, summary] = await Promise.all([
+      listIntegrationApiLogs(dbPool, filter),
+      getIntegrationApiLogSummary(dbPool, id)
+    ]);
+    res.status(200).json({ ...list, summary });
+  } catch (error) {
+    console.error("[api] failed to list integration logs", {
+      message: error instanceof Error ? error.message : error
+    });
+    res.status(500).json({ error: "failed_to_list_integration_logs" });
   }
 });
 
