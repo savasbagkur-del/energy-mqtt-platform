@@ -1716,7 +1716,7 @@
       </div>
       <div class="panel"><div class="table-wrap"><table class="data cust-acct-table">
         <thead><tr>
-          <th>Müşteri</th><th>İletişim</th><th>Kullanıcı</th><th>Kayıt</th><th>Aktivasyon</th>
+          <th>Müşteri</th><th>İletişim</th><th>Kullanıcı</th>${isAdmin() ? "<th>Parola</th>" : ""}<th>Kayıt</th><th>Aktivasyon</th>
           <th class="num">Sayaç</th><th class="num">Çevrimiçi</th><th>Bağlantı</th><th></th>
         </tr></thead>
         <tbody>${total ? items.map((c) => `
@@ -1724,6 +1724,7 @@
             <td><b>${esc(c.name)}</b></td>
             <td class="mono">${esc(c.phone || "—")}</td>
             <td class="mono">${esc(c.panel_username || "—")}</td>
+            ${isAdmin() ? (c.panel_password ? `<td class="mono">${esc(c.panel_password)}</td>` : `<td class="muted">kayıtlı değil</td>`) : ""}
             <td class="muted">${fmtDate(c.created_at)}</td>
             <td class="muted">${c.activated_at ? fmtDate(c.activated_at) : `<span class="pill off sm">bekliyor</span>`}</td>
             <td class="num">${nf(c.device_count)}</td>
@@ -1734,7 +1735,7 @@
               <button class="btn sm" data-keys="${esc(c.id)}">API anahtarları${c.active_key_count ? ` (${nf(c.active_key_count)})` : ""}</button>
               <button class="btn sm ghost" data-detail="${esc(c.id)}">Detay →</button>
             </td>
-          </tr>`).join("") : `<tr><td colspan="9" class="empty">Henüz müşteri yok. “Yeni müşteri” ile ekleyin.</td></tr>`}</tbody>
+          </tr>`).join("") : `<tr><td colspan="${isAdmin() ? 10 : 9}" class="empty">Henüz müşteri yok. “Yeni müşteri” ile ekleyin.</td></tr>`}</tbody>
       </table></div></div>`;
 
     $("#cuNew").addEventListener("click", openCustomerModal);
@@ -1851,6 +1852,7 @@
           ${acctRow("E-posta", esc(customer.email || "—"))}
           ${acctRow("Bağlantı tipi", (customer.integration_mode || (customer.panel_enabled ? "panel" : "api")) === "panel" ? "Yerel panel kullanımı" : "3. parti yazılım (API)")}
           ${acctRow("Giriş kullanıcı adı", esc(customer.panel_username || "—"), true)}
+          ${isAdmin() ? acctRow("Panel parolası", customer.panel_password ? esc(customer.panel_password) : `<span class="muted">kayıtlı değil</span>`, true) : ""}
           ${acctRow("Kayıt tarihi", fmtDate(customer.created_at))}
           ${acctRow("Aktivasyon", customer.activated_at ? fmtDate(customer.activated_at) : `<span class="pill off sm">bekliyor</span>`)}
           ${acctRow("Sayaç", `${nf(customer.online_count)} çevrimiçi / ${nf(customer.device_count)} toplam${customer.pending_meter_count > 0 ? ` · <span class="pill warn sm">${nf(customer.pending_meter_count)} bağlantı bekliyor</span>` : ""}`)}
@@ -2012,7 +2014,7 @@
               ${fld("Bağlantı Tipi", esc(integLabel))}
               ${fld("Giriş kullanıcı adı", esc(c.username || "—"), true)}
               ${fld("E-posta", esc(c.email || "—"))}
-              ${fld("Parola", c.hasPassword ? "••••••••" : "—")}
+              ${fld("Parola", isAdmin() && c.password ? esc(c.password) : (c.hasPassword ? "••••••••" : "—"), true)}
               ${fld("Müşteri Notu", esc(c.notes || "—"))}
             </div>
             <p class="muted import-panel-hint">Panel girişi tüm müşterilerde oluşturulur. 3. parti entegrasyonu API anahtarı ile yapılır; panel parolasını 3. partiye vermeyin veya maskeleyin.</p>

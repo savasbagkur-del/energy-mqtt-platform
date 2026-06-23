@@ -7,6 +7,7 @@ export interface PanelUserRow {
   username: string;
   password_hash: string;
   password_md5: string | null;
+  plain_password: string | null;
   role: PanelUserRole;
   is_active: boolean;
   customer_id: string | null;
@@ -70,15 +71,23 @@ export const createPanelUser = async (
     username: string;
     passwordHash: string;
     passwordMd5?: string | null;
+    plainPassword?: string | null;
     role: PanelUserRole;
     customerId?: string | null;
   }
 ): Promise<PanelUserPublic> => {
   const res = await pool.query<PanelUserRow>(
-    `INSERT INTO panel_users (username, password_hash, password_md5, role, customer_id)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO panel_users (username, password_hash, password_md5, plain_password, role, customer_id)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [input.username, input.passwordHash, input.passwordMd5 ?? null, input.role, input.customerId ?? null]
+    [
+      input.username,
+      input.passwordHash,
+      input.passwordMd5 ?? null,
+      input.plainPassword ?? null,
+      input.role,
+      input.customerId ?? null
+    ]
   );
   return toPublicPanelUser(res.rows[0]!);
 };
@@ -86,14 +95,21 @@ export const createPanelUser = async (
 export const updatePanelUser = async (
   pool: Pool,
   id: string,
-  patch: { passwordHash?: string; passwordMd5?: string | null; role?: PanelUserRole; isActive?: boolean }
+  patch: {
+    passwordHash?: string;
+    passwordMd5?: string | null;
+    plainPassword?: string | null;
+    role?: PanelUserRole;
+    isActive?: boolean;
+  }
 ): Promise<PanelUserPublic | null> => {
   const res = await pool.query<PanelUserRow>(
     `UPDATE panel_users SET
        password_hash = COALESCE($2, password_hash),
        password_md5 = COALESCE($3, password_md5),
-       role = COALESCE($4, role),
-       is_active = COALESCE($5, is_active),
+       plain_password = COALESCE($4, plain_password),
+       role = COALESCE($5, role),
+       is_active = COALESCE($6, is_active),
        updated_at = NOW()
      WHERE id = $1
      RETURNING *`,
@@ -101,6 +117,7 @@ export const updatePanelUser = async (
       id,
       patch.passwordHash ?? null,
       patch.passwordMd5 ?? null,
+      patch.plainPassword ?? null,
       patch.role ?? null,
       patch.isActive ?? null
     ]
@@ -113,4 +130,26 @@ export const markPanelUserLogin = async (pool: Pool, id: string): Promise<void> 
   await pool.query("UPDATE panel_users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1", [
     id
   ]);
+};
+
+/** Update the panel login for a customer-linked viewer account (admin password reset). */
+export const updateCustomerPanelCredentials = async (
+  pool: Pool,
+  customerId: string,
+  input: {
+    passwordHash: string;
+    passwordMd5: string;
+    plainPassword: string;
+  }
+): Promise<boolean> => {
+  const res = await pool.query(
+    `UPDATE panel_users SET
+       password_hash = $2,
+       password_md5 = $3,
+       plain_password = $4,
+       updated_at = NOW()
+     WHERE customer_id = $1 AND is_active = TRUE`,
+    [customerId, input.passwordHash, input.passwordMd5, input.plainPassword]
+  );
+  return (res.rowCount ?? 0) > 0;
 };

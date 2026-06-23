@@ -387,6 +387,7 @@ export const applyCustomerImport = async (
           ? (c.passwordHash || (password ? hashPassword(password) : ""))
           : "",
         passwordMd5: panelOn && password ? md5Hex(password) : null,
+        plainPassword: panelOn && password ? password : null,
         meters: metersInput
       });
 

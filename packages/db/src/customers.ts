@@ -16,6 +16,8 @@ export interface CustomerOverviewRow {
   panel_enabled: boolean;
   integration_mode: "panel" | "api";
   panel_username: string | null;
+  /** Plain panel password — only returned to admin API callers when stored at create/update. */
+  panel_password: string | null;
   device_count: number;
   online_count: number;
   active_key_count: number;
@@ -42,6 +44,7 @@ export const listCustomersOverview = async (
     `SELECT
        c.id, c.name, c.phone, c.email, c.notes, c.panel_enabled, c.integration_mode, c.created_at,
        MAX(pu.username) AS panel_username,
+       MAX(pu.plain_password) AS panel_password,
        COUNT(DISTINCT d.sn) AS device_count,
        COUNT(DISTINCT d.sn) FILTER (
          WHERE ls.last_seen_at >= NOW() - INTERVAL '${win} seconds'
@@ -75,6 +78,7 @@ export const listCustomersOverview = async (
     panel_enabled: r.panel_enabled === true,
     integration_mode: r.integration_mode === "api" ? "api" : "panel",
     panel_username: (r.panel_username as string | null) ?? null,
+    panel_password: (r.panel_password as string | null) ?? null,
     device_count: int(r.device_count),
     online_count: int(r.online_count),
     active_key_count: int(r.active_key_count),
@@ -97,6 +101,7 @@ export const getCustomerDetailById = async (
     `SELECT
        c.id, c.name, c.phone, c.email, c.notes, c.panel_enabled, c.integration_mode, c.created_at,
        MAX(pu.username) AS panel_username,
+       MAX(pu.plain_password) AS panel_password,
        COUNT(DISTINCT d.sn) AS device_count,
        COUNT(DISTINCT d.sn) FILTER (
          WHERE ls.last_seen_at >= NOW() - INTERVAL '${win} seconds'
@@ -133,6 +138,7 @@ export const getCustomerDetailById = async (
     panel_enabled: r.panel_enabled === true,
     integration_mode: r.integration_mode === "api" ? "api" : "panel",
     panel_username: (r.panel_username as string | null) ?? null,
+    panel_password: (r.panel_password as string | null) ?? null,
     device_count: int(r.device_count),
     online_count: int(r.online_count),
     active_key_count: int(r.active_key_count),
@@ -185,6 +191,8 @@ export interface CreateCustomerAccountInput {
   passwordHash: string;
   /** MD5(hex) of plain password — required for EasyTech /login when integrationMode is api. */
   passwordMd5?: string | null;
+  /** Stored for admin retrieval (customer panel login). */
+  plainPassword?: string | null;
   /** panel = local UI login; api = third-party software via customer API keys. */
   integrationMode?: "panel" | "api";
   panelEnabled?: boolean;
@@ -226,10 +234,10 @@ export const createCustomerWithAccount = async (
     let panelUser: PanelUserPublic | null = null;
     if (panelOn) {
       const puRes = await client.query(
-        `INSERT INTO panel_users (username, password_hash, password_md5, role, customer_id)
-         VALUES ($1, $2, $3, 'viewer', $4)
+        `INSERT INTO panel_users (username, password_hash, password_md5, plain_password, role, customer_id)
+         VALUES ($1, $2, $3, $4, 'viewer', $5)
          RETURNING *`,
-        [input.username, input.passwordHash, input.passwordMd5 ?? null, customerId]
+        [input.username, input.passwordHash, input.passwordMd5 ?? null, input.plainPassword ?? null, customerId]
       );
       panelUser = {
         id: String(puRes.rows[0]!.id),

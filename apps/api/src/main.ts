@@ -87,6 +87,7 @@ import {
   listPanelUsers,
   createPanelUser,
   updatePanelUser,
+  updateCustomerPanelCredentials,
   markPanelUserLogin,
   listAlarms,
   listOpenAlarmsForSn,
@@ -339,6 +340,17 @@ const requireControl = (
   res.status(403).json({ error: "forbidden", detail: "control role required" });
 };
 
+/** Panel passwords are stored for admin ops; never expose to non-admin callers. */
+const withCustomerPasswordVisibility = <T extends { panel_password?: string | null }>(
+  row: T,
+  req: express.Request
+): T => {
+  if (req.authUser?.role === "admin") {
+    return row;
+  }
+  return { ...row, panel_password: null };
+};
+
 const port = appConfig.apiPort ?? 3000;
 const dbPool = createDbPool({
   host: appConfig.postgresHost ?? "127.0.0.1",
@@ -398,7 +410,10 @@ app.post("/auth/login", async (req, res) => {
       return;
     }
     if (!user.password_md5) {
-      void updatePanelUser(dbPool, user.id, { passwordMd5: md5Hex(password) }).catch(() => undefined);
+      void updatePanelUser(dbPool, user.id, {
+        passwordMd5: md5Hex(password),
+        plainPassword: password
+      }).catch(() => undefined);
     }
     const token = signJwt({ sub: user.id, username: user.username, role: user.role });
     void markPanelUserLogin(dbPool, user.id).catch(() => {});
@@ -447,7 +462,8 @@ app.post("/auth/password", async (req, res) => {
     }
     await updatePanelUser(dbPool, u.id, {
       passwordHash: hashPassword(newPassword),
-      passwordMd5: md5Hex(newPassword)
+      passwordMd5: md5Hex(newPassword),
+      plainPassword: newPassword
     });
     res.status(200).json({ ok: true });
   } catch (error) {
@@ -494,6 +510,7 @@ app.post("/admin/users", requireAdmin, async (req, res) => {
       username,
       passwordHash: hashPassword(password),
       passwordMd5: md5Hex(password),
+      plainPassword: password,
       role
     });
     res.status(201).json({ user });
@@ -506,7 +523,13 @@ app.post("/admin/users", requireAdmin, async (req, res) => {
 app.patch("/admin/users/:id", requireAdmin, async (req, res) => {
   const id = req.params.id ?? "";
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const patch: { passwordHash?: string; passwordMd5?: string | null; role?: PanelUserRole; isActive?: boolean } = {};
+  const patch: {
+    passwordHash?: string;
+    passwordMd5?: string | null;
+    plainPassword?: string | null;
+    role?: PanelUserRole;
+    isActive?: boolean;
+  } = {};
   if (typeof body.password === "string") {
     if (body.password.length < 8) {
       res.status(400).json({ error: "weak_password", detail: "min 8 characters" });
@@ -514,6 +537,7 @@ app.patch("/admin/users/:id", requireAdmin, async (req, res) => {
     }
     patch.passwordHash = hashPassword(body.password);
     patch.passwordMd5 = md5Hex(body.password);
+    patch.plainPassword = body.password;
   }
   if (body.role !== undefined) {
     if (!isValidRole(body.role)) {
@@ -1470,12 +1494,14 @@ app.post("/customers", requireAdmin, async (req, res) => {
       username,
       passwordHash: hashPassword(password),
       passwordMd5: md5Hex(password),
+      plainPassword: password,
       integrationMode,
       panelEnabled,
       meters
     });
     res.status(201).json({
       ...result.customer,
+      panel_password: password,
       panel_user: result.panelUser,
       meters_registered: result.metersRegistered
     });
@@ -1564,7 +1590,10 @@ app.post("/customers/import/confirm", requireAdmin, async (req, res) => {
 app.get("/customers/overview", async (req, res) => {
   try {
     const win = typeof req.query.window === "string" ? Number(req.query.window) : 300;
-    res.status(200).json({ items: await listCustomersOverview(dbPool, Number.isFinite(win) ? win : 300) });
+    const items = await listCustomersOverview(dbPool, Number.isFinite(win) ? win : 300);
+    res.status(200).json({
+      items: items.map((row) => withCustomerPasswordVisibility(row, req))
+    });
   } catch (error) {
     console.error("[api] failed to list customers overview", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_list_customers_overview" });
@@ -1584,7 +1613,7 @@ app.get("/customers/:id", async (req, res) => {
       res.status(404).json({ error: "customer_not_found" });
       return;
     }
-    res.status(200).json(row);
+    res.status(200).json(withCustomerPasswordVisibility(row, req));
   } catch (error) {
     console.error("[api] failed to get customer", { id, message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_get_customer" });
@@ -1646,13 +1675,34 @@ app.patch("/customers/:id", requireAdmin, async (req, res) => {
   if (typeof body.notes === "string") patch.notes = body.notes;
   const pe = body.panelEnabled ?? body.panel_enabled;
   if (typeof pe === "boolean") patch.panelEnabled = pe;
+  const panelPassword =
+    typeof body.panelPassword === "string"
+      ? body.panelPassword
+      : typeof body.panel_password === "string"
+        ? body.panel_password
+        : "";
   try {
+    if (panelPassword.length >= 8) {
+      const ok = await updateCustomerPanelCredentials(dbPool, id, {
+        passwordHash: hashPassword(panelPassword),
+        passwordMd5: md5Hex(panelPassword),
+        plainPassword: panelPassword
+      });
+      if (!ok) {
+        res.status(404).json({ error: "panel_user_not_found", detail: "Bu müşteriye bağlı panel kullanıcısı yok" });
+        return;
+      }
+    } else if (panelPassword.length > 0) {
+      res.status(400).json({ error: "weak_password", detail: "Parola en az 8 karakter olmalı" });
+      return;
+    }
     const row = await updateCustomer(dbPool, id, patch);
     if (!row) {
       res.status(404).json({ error: "customer_not_found" });
       return;
     }
-    res.status(200).json(row);
+    const detail = await getCustomerDetailById(dbPool, id);
+    res.status(200).json(detail ? withCustomerPasswordVisibility(detail, req) : row);
   } catch (error) {
     console.error("[api] failed to update customer", { message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_update_customer" });
