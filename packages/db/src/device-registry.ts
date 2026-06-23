@@ -251,7 +251,7 @@ export const listDevicesRegistry = async (
   params.push(limit, offset);
   const sql = `${REGISTRY_SELECT}
     ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
-    ORDER BY d.last_seen_at DESC NULLS LAST
+    ORDER BY COALESCE(d.registered_at, d.commissioned_at) ASC NULLS LAST, d.sn ASC
     LIMIT $${params.length - 1} OFFSET $${params.length}`;
   const res = await pool.query<DeviceRegistryRow>(sql, params);
   return res.rows;

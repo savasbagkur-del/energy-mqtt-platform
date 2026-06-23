@@ -643,7 +643,7 @@ export const listFleetDevices = async (
   params.push(limit, offset);
 
   const listSql = `SELECT ${selectCols} ${fromSql}
-    ORDER BY online DESC NULLS LAST, COALESCE(ls.last_seen_at, d.last_seen_at) DESC NULLS LAST, d.sn
+    ORDER BY COALESCE(d.registered_at, d.commissioned_at) ASC NULLS LAST, d.sn ASC
     LIMIT $${params.length - 1} OFFSET $${params.length}`;
 
   // Count query reuses the same WHERE params except limit/offset.
