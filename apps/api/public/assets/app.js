@@ -1209,7 +1209,7 @@
   }
 
   // ================================================================ DEVICE DETAIL
-  const deviceState = { sn: null, range: "24h", presenceHours: 24 };
+  const deviceState = { sn: null, range: "24h", presenceHours: 24, prepaidPeriod: "day" };
 
   // builders for the live (auto-refreshed) regions — kept separate so silent refresh updates
   // only these slots and never disturbs the trend chart or rebinds static controls.
@@ -1420,6 +1420,19 @@
             <div class="panel-pad"><div class="metric-cards" id="metricSlot"></div></div>
           </div>
 
+          ${reg && reg.meter_usage === "prepaid" ? `<div class="panel" id="prepaidPanel">
+            <div class="panel-head"><h2>Prepaid hesap</h2><span class="panel-note">Yükleme − tüketim</span></div>
+            <div class="panel-pad" id="prepaidSlot"><div class="loading">Yükleniyor…</div></div>
+          </div>
+          <div class="panel" id="prepaidChartPanel">
+            <div class="panel-head"><h2>Tüketim grafiği</h2>
+              <div class="panel-actions"><div class="seg" id="prepaidPeriodSeg">
+                ${[["day", "Günlük"], ["week", "Haftalık"], ["month", "Aylık"]].map(([v, l]) => `<button type="button" data-v="${v}" class="${deviceState.prepaidPeriod === v ? "active" : ""}">${l}</button>`).join("")}
+              </div></div>
+            </div>
+            <div class="panel-pad" id="prepaidChartArea"><div class="loading">Grafik yükleniyor…</div></div>
+          </div>` : ""}
+
           ${is3ph ? `<div class="panel">
             <div class="panel-head"><h2>3 Faz Detay</h2><div class="panel-actions muted" style="font-size:12px">L1 / L2 / L3</div></div>
             <div class="panel-pad" id="phaseSlot"></div>
@@ -1484,7 +1497,100 @@
 
     loadSeries(sn);
     loadPresence(sn);
+    if (reg && reg.meter_usage === "prepaid") {
+      loadPrepaidPanel(sn);
+      loadPrepaidConsumptionChart(sn);
+      $$("#prepaidPeriodSeg button", view).forEach((b) => b.addEventListener("click", () => {
+        $$("#prepaidPeriodSeg button", view).forEach((x) => x.classList.remove("active"));
+        b.classList.add("active");
+        deviceState.prepaidPeriod = b.dataset.v;
+        loadPrepaidConsumptionChart(sn);
+      }));
+    }
     state.refresher = () => renderDevice(sn, true);
+  }
+
+  async function loadPrepaidPanel(sn) {
+    const slot = $("#prepaidSlot");
+    if (!slot) return;
+    let data;
+    try { data = await api("GET", `/devices/${encodeURIComponent(sn)}/prepaid`); }
+    catch (e) {
+      slot.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+      return;
+    }
+    const s = data.summary || {};
+    const topups = data.topups || [];
+    const cutoffHint = s.cutoff_disabled ? "Kapalı (−9999)" : `${nf(s.cutoff_balance_kwh, 2)} kWh`;
+    slot.innerHTML = `
+      <div class="metric-cards">
+        <div class="metric"><div class="m-label">Toplam yükleme</div><div class="m-val">${nf(s.total_topup_kwh, 2)}<small>kWh</small></div></div>
+        <div class="metric"><div class="m-label">Toplam tüketim</div><div class="m-val">${nf(s.total_consumption_kwh, 2)}<small>kWh</small></div></div>
+        <div class="metric"><div class="m-label">Bakiye (platform)</div><div class="m-val" style="color:${s.balance_kwh < 0 ? "var(--bad-text)" : "var(--on-text)"}">${nf(s.balance_kwh, 2)}<small>kWh</small></div></div>
+        <div class="metric"><div class="m-label">Sayaç bakiyesi</div><div class="m-val">${s.meter_balance_kwh != null ? nf(s.meter_balance_kwh, 2) : "—"}<small>kWh</small></div></div>
+      </div>
+      <dl class="kv" style="margin-top:12px">
+        <dt>Kesme eşiği</dt><dd>${esc(cutoffHint)}</dd>
+        <dt>Otomatik kesme</dt><dd>${s.auto_cutoff_enabled ? `<span class="pill on sm">Açık</span>` : `<span class="pill off sm">Kapalı</span>`}</dd>
+        <dt>EPI referans</dt><dd class="mono">${nf(s.baseline_epi_kwh, 2)} kWh</dd>
+      </dl>
+      ${isAdmin() ? `<div class="panel-inset" style="margin-top:14px">
+        <div class="import-section-banner">Yükleme (admin)</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+          <input type="number" step="0.01" min="0.01" id="ptAmount" placeholder="kWh" class="input sm" style="width:100px" />
+          <input type="text" id="ptRef" placeholder="Referans" class="input sm" style="flex:1;min-width:120px" />
+          <button type="button" class="btn sm primary" id="ptSubmit">Yükle</button>
+        </div>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center">
+          <label class="check sm"><input type="checkbox" id="ptAutoCut" ${s.auto_cutoff_enabled ? "checked" : ""} /> Otomatik kesme</label>
+          <input type="number" step="0.01" id="ptCutoff" value="${s.cutoff_disabled ? -9999 : s.cutoff_balance_kwh}" class="input sm" style="width:100px" title="Eşik kWh (−9999=kapalı)" />
+          <button type="button" class="btn sm" id="ptSaveSettings">Ayarları kaydet</button>
+        </div>
+      </div>` : ""}
+      ${topups.length ? `<div style="margin-top:14px"><div class="muted" style="font-size:12px;margin-bottom:6px">Son yüklemeler</div>
+        <table class="data sm"><thead><tr><th>Tarih</th><th class="num">kWh</th><th>Kaynak</th><th>Ref</th></tr></thead>
+        <tbody>${topups.slice(0, 8).map((t) => `<tr><td class="muted">${fmtDateTime(t.created_at)}</td><td class="num mono">${nf(t.amount_kwh, 2)}</td><td>${esc(t.source)}</td><td class="mono">${esc(t.ref || "—")}</td></tr>`).join("")}</tbody></table></div>` : ""}`;
+    const submit = $("#ptSubmit");
+    if (submit) submit.addEventListener("click", async () => {
+      const amount = Number($("#ptAmount")?.value);
+      const ref = $("#ptRef")?.value?.trim() || null;
+      if (!amount || amount <= 0) { toast("Hata", "Geçerli kWh girin", "error"); return; }
+      try {
+        await api("POST", `/devices/${encodeURIComponent(sn)}/prepaid/topups`, { amount_kwh: amount, ref });
+        toast("Yüklendi", `${nf(amount, 2)} kWh`, "success");
+        loadPrepaidPanel(sn);
+        loadPrepaidConsumptionChart(sn);
+      } catch (e) { toast("Hata", e.message, "error"); }
+    });
+    const saveSet = $("#ptSaveSettings");
+    if (saveSet) saveSet.addEventListener("click", async () => {
+      try {
+        await api("PATCH", `/devices/${encodeURIComponent(sn)}/prepaid/settings`, {
+          auto_cutoff_enabled: !!$("#ptAutoCut")?.checked,
+          cutoff_balance_kwh: Number($("#ptCutoff")?.value)
+        });
+        toast("Kaydedildi", "", "success");
+        loadPrepaidPanel(sn);
+      } catch (e) { toast("Hata", e.message, "error"); }
+    });
+  }
+
+  async function loadPrepaidConsumptionChart(sn) {
+    const area = $("#prepaidChartArea");
+    if (!area) return;
+    const period = deviceState.prepaidPeriod || "day";
+    let data;
+    try { data = await api("GET", `/devices/${encodeURIComponent(sn)}/prepaid/consumption?period=${period}`); }
+    catch (e) { area.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+    const pts = data.points || [];
+    if (!pts.length) {
+      area.innerHTML = `<div class="empty">Bu dönemde tüketim verisi yok. Sayaç <code>update</code> mesajları geldikçe EPI farkı hesaplanır.</div>`;
+      return;
+    }
+    const chartPts = pts.map((p) => ({ t: new Date(p.bucket).getTime(), y: p.consumption_kwh }));
+    area.innerHTML = lineChart([
+      { name: "Tüketim (kWh)", color: "var(--brand)", axis: "l", area: true, points: chartPts }
+    ], { height: 220 });
   }
 
   function onlinePill(on) { return `<span class="pill ${on ? "on" : "off"}"><span class="pdot"></span>${on ? "Çevrimiçi" : "Çevrimdışı"}</span>`; }

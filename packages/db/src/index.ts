@@ -20,6 +20,7 @@ export * from "./integration-devices.js";
 export * from "./integration-api-log.js";
 export * from "./last-summary.js";
 export * from "./latest-state.js";
+export * from "./prepaid.js";
 export * from "./panel-users.js";
 export * from "./payload-fields.js";
 export * from "./policies.js";

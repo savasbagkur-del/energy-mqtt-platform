@@ -82,18 +82,21 @@ export const emptyTelemetrySnapshot = (sn: string): DeviceTelemetrySnapshot => (
 });
 
 /** §2 getMeterList — one row per assigned meter. */
-export const toMeterListItem = (row: FleetDeviceRow): EasyTechMeterListItem => ({
+export const toMeterListItem = (
+  row: FleetDeviceRow,
+  prepaid?: import("@communication/db").PrepaidSummary | null
+): EasyTechMeterListItem => ({
   meterID: row.sn,
   roomNo: row.unit_no ?? row.label ?? "",
-  balance: num(row.balance),
-  epi: num(row.energy_import_kwh),
+  balance: prepaid ? prepaid.balance_kwh : num(row.balance),
+  epi: prepaid ? prepaid.total_consumption_kwh : num(row.energy_import_kwh),
   togetherMoney: 0,
-  oweMoney: oweMoneyBool(row.owe_money),
+  oweMoney: prepaid ? prepaid.balance_kwh < 0 : oweMoneyBool(row.owe_money),
   controlMode: controlModeListFlag(row.meter_usage),
   switchSta: switchStaInt(row.switch_state),
   unConnect: unConnect(row.online),
   together: false,
-  credit: 0
+  credit: prepaid ? prepaid.total_topup_kwh : 0
 });
 
 /** §3 getMeterInfo — full detail object (all documented keys). */
@@ -104,13 +107,15 @@ export const toMeterInfoData = (input: {
   model: string | null;
   telemetry: DeviceTelemetrySnapshot;
   online: boolean;
+  prepaid?: import("@communication/db").PrepaidSummary | null;
 }): EasyTechMeterInfoData => {
   const tel = input.telemetry;
+  const prepaid = input.prepaid;
   return {
     meterID: input.sn,
     roomNo: input.roomNo,
-    startMoney: 0,
-    totalMoney: 0,
+    startMoney: prepaid ? prepaid.total_topup_kwh : 0,
+    totalMoney: prepaid ? prepaid.total_topup_kwh : 0,
     buyTimes: 0,
     alarmA: num(tel.alarm_a),
     alarmB: num(tel.alarm_b),
@@ -119,11 +124,11 @@ export const toMeterInfoData = (input: {
     priceFlat: 0,
     priceValley: 0,
     model: input.model ?? "",
-    balance: num(tel.balance),
+    balance: prepaid ? prepaid.balance_kwh : num(tel.balance),
     togetherMoney: 0,
     p: num(tel.active_power_kw),
-    epi: num(tel.energy_import_kwh),
-    oweMoney: oweMoneyBool(tel.owe_money),
+    epi: prepaid ? prepaid.total_consumption_kwh : num(tel.energy_import_kwh),
+    oweMoney: prepaid ? prepaid.balance_kwh < 0 : oweMoneyBool(tel.owe_money),
     userStatus: USER_STATUS_OPEN,
     controlMode: controlModeInfoString(input.meterUsage),
     switchSta: switchStaString(tel.switch_state),

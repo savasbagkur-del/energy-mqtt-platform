@@ -5,6 +5,9 @@ import crypto from "node:crypto";
 import type { Express } from "express";
 import {
   getDeviceTelemetry,
+  getPrepaidSummariesForSns,
+  getPrepaidSummary,
+  addPrepaidTopupByRoom,
   listFleetDevices,
   resolveDeviceOnline
 } from "@communication/db";
@@ -96,6 +99,10 @@ export const registerEasyTechRoutes = (app: Express, deps: EasyTechRouteDeps): v
         limit: 500,
         offset: 0
       });
+      const prepaidMap = await getPrepaidSummariesForSns(
+        deps.pool,
+        result.items.map((r) => r.sn)
+      );
       logEasyTechCall(deps.pool, req, {
         auth,
         direction: "read",
@@ -104,7 +111,9 @@ export const registerEasyTechRoutes = (app: Express, deps: EasyTechRouteDeps): v
         success: true,
         durationMs: Date.now() - started
       });
-      res.status(200).json(meterListOk(result.items.map(toMeterListItem)));
+      res.status(200).json(
+        meterListOk(result.items.map((r) => toMeterListItem(r, prepaidMap.get(r.sn) ?? null)))
+      );
     } catch (error) {
       console.error("[easytech] getMeterList failed", {
         customerId: auth.customerId,
@@ -192,6 +201,7 @@ export const registerEasyTechRoutes = (app: Express, deps: EasyTechRouteDeps): v
       }
       const tel = (await getDeviceTelemetry(deps.pool, sn)) ?? emptyTelemetrySnapshot(sn);
       const online = await resolveDeviceOnline(deps.pool, sn, 300);
+      const prepaid = await getPrepaidSummary(deps.pool, sn);
       logEasyTechCall(deps.pool, req, {
         auth,
         direction: "read",
@@ -210,7 +220,8 @@ export const registerEasyTechRoutes = (app: Express, deps: EasyTechRouteDeps): v
             meterUsage: String(dev.meter_usage ?? "prepaid"),
             model: dev.model ?? null,
             telemetry: tel,
-            online
+            online,
+            prepaid
           })
         )
       );
@@ -309,6 +320,71 @@ export const registerEasyTechRoutes = (app: Express, deps: EasyTechRouteDeps): v
       console.error("[easytech] meterControl failed", { sn, switchVal, message });
       logControl(false, message, sn);
       res.status(200).json(meterControlFail(message));
+    }
+  });
+
+  app.post(EASYTECH_PATHS.topUpMeter, async (req, res) => {
+    const started = Date.now();
+    const auth = parseEasyTechAuth(deps, req, "control");
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const roomNo = typeof body.roomNo === "string" ? body.roomNo.trim() : "";
+    const amountRaw = body.amount ?? body.amountKwh ?? body.kwh;
+    const amountKwh = typeof amountRaw === "number" ? amountRaw : Number(amountRaw);
+    const ref = typeof body.ref === "string" ? body.ref.trim() : null;
+
+    const logTopUp = (success: boolean, errorMsg: string | null, sn?: string | null) => {
+      logEasyTechCall(deps.pool, req, {
+        auth: auth ?? null,
+        direction: "control",
+        endpoint: EASYTECH_PATHS.topUpMeter,
+        httpMethod: "POST",
+        roomNo: roomNo || null,
+        sn: sn ?? null,
+        success,
+        errorMsg,
+        durationMs: Date.now() - started
+      });
+    };
+
+    if (!auth) {
+      logTopUp(false, "unauthorized");
+      res.status(200).json({ success: 0, errorMsg: "unauthorized" });
+      return;
+    }
+    if (!roomNo || !Number.isFinite(amountKwh) || amountKwh <= 0) {
+      logTopUp(false, "invalid_request");
+      res.status(200).json({ success: 0, errorMsg: "invalid_request" });
+      return;
+    }
+    try {
+      const result = await addPrepaidTopupByRoom(deps.pool, auth.customerId, roomNo, {
+        amountKwh,
+        source: "api",
+        ref,
+        createdBy: `easytech:${auth.username}`
+      });
+      if (!result) {
+        logTopUp(false, "meter_not_found");
+        res.status(200).json({ success: 0, errorMsg: "meter_not_found" });
+        return;
+      }
+      logTopUp(true, null, result.summary.sn);
+      res.status(200).json({
+        success: 1,
+        data: {
+          meterID: result.summary.sn,
+          roomNo,
+          amountKwh: result.topup.amount_kwh,
+          balance: result.summary.balance_kwh,
+          totalTopUp: result.summary.total_topup_kwh,
+          totalConsumption: result.summary.total_consumption_kwh
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "topup_failed";
+      console.error("[easytech] topUpMeter failed", { roomNo, amountKwh, message });
+      logTopUp(false, message);
+      res.status(200).json({ success: 0, errorMsg: message });
     }
   });
 };

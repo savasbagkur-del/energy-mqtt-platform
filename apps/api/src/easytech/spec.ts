@@ -15,7 +15,8 @@ export const EASYTECH_PATHS = {
   login: "/login",
   getMeterList: "/getMeterList",
   getMeterInfo: "/getMeterInfo",
-  meterControl: "/meterControl"
+  meterControl: "/meterControl",
+  topUpMeter: "/topUpMeter"
 } as const;
 
 export const EASYTECH_PATH_SET = new Set<string>(Object.values(EASYTECH_PATHS));

@@ -63,6 +63,11 @@ import {
   findDeviceSnByCustomerRoom,
   listIntegrationApiLogs,
   getIntegrationApiLogSummary,
+  getPrepaidSummary,
+  getPrepaidConsumptionSeries,
+  listPrepaidTopups,
+  createPrepaidTopup,
+  updateDevicePrepaidSettings,
   registerDevice,
   bulkRegisterDevices,
   getDeviceRegistry,
@@ -2484,6 +2489,107 @@ app.get("/devices/:sn/telemetry/series", async (req, res) => {
   } catch (error) {
     console.error("[api] failed to fetch telemetry series", { sn, message: error instanceof Error ? error.message : error });
     res.status(500).json({ error: "failed_to_fetch_telemetry_series" });
+  }
+});
+
+app.get("/devices/:sn/prepaid", async (req, res) => {
+  const sn = req.params.sn ?? "";
+  try {
+    const summary = await getPrepaidSummary(dbPool, sn);
+    if (!summary) {
+      res.status(404).json({ error: "not_prepaid_meter" });
+      return;
+    }
+    const topups = await listPrepaidTopups(dbPool, sn, 20);
+    res.status(200).json({ summary, topups });
+  } catch (error) {
+    console.error("[api] failed to fetch prepaid", { sn, message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_fetch_prepaid" });
+  }
+});
+
+app.get("/devices/:sn/prepaid/consumption", async (req, res) => {
+  const sn = req.params.sn ?? "";
+  const periodRaw = typeof req.query.period === "string" ? req.query.period : "day";
+  const period = periodRaw === "week" || periodRaw === "month" ? periodRaw : "day";
+  const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+  try {
+    const points = await getPrepaidConsumptionSeries(dbPool, sn, period, limit);
+    res.status(200).json({ sn, period, points });
+  } catch (error) {
+    console.error("[api] failed to fetch prepaid consumption", { sn, message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_fetch_prepaid_consumption" });
+  }
+});
+
+app.patch("/devices/:sn/prepaid/settings", requireAdmin, async (req, res) => {
+  const sn = req.params.sn ?? "";
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  try {
+    const summary = await getPrepaidSummary(dbPool, sn);
+    if (!summary) {
+      res.status(404).json({ error: "not_prepaid_meter" });
+      return;
+    }
+    const patch: {
+      baselineEpiKwh?: number;
+      cutoffBalanceKwh?: number;
+      autoCutoffEnabled?: boolean;
+    } = {};
+    if (typeof body.baseline_epi_kwh === "number" && Number.isFinite(body.baseline_epi_kwh)) {
+      patch.baselineEpiKwh = body.baseline_epi_kwh;
+    }
+    if (typeof body.baselineEpiKwh === "number" && Number.isFinite(body.baselineEpiKwh)) {
+      patch.baselineEpiKwh = body.baselineEpiKwh;
+    }
+    const cutoff = body.cutoff_balance_kwh ?? body.cutoffBalanceKwh;
+    if (typeof cutoff === "number" && Number.isFinite(cutoff)) {
+      patch.cutoffBalanceKwh = cutoff;
+    }
+    if (typeof body.auto_cutoff_enabled === "boolean") {
+      patch.autoCutoffEnabled = body.auto_cutoff_enabled;
+    }
+    if (typeof body.autoCutoffEnabled === "boolean") {
+      patch.autoCutoffEnabled = body.autoCutoffEnabled;
+    }
+    await updateDevicePrepaidSettings(dbPool, sn, patch);
+    const updated = await getPrepaidSummary(dbPool, sn);
+    res.status(200).json({ summary: updated });
+  } catch (error) {
+    console.error("[api] failed to update prepaid settings", { sn, message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_update_prepaid_settings" });
+  }
+});
+
+app.post("/devices/:sn/prepaid/topups", requireAdmin, async (req, res) => {
+  const sn = req.params.sn ?? "";
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const amountRaw = body.amount_kwh ?? body.amountKwh ?? body.amount;
+  const amountKwh = typeof amountRaw === "number" ? amountRaw : Number(amountRaw);
+  if (!Number.isFinite(amountKwh) || amountKwh <= 0) {
+    res.status(400).json({ error: "invalid_amount" });
+    return;
+  }
+  try {
+    const summary = await getPrepaidSummary(dbPool, sn);
+    if (!summary) {
+      res.status(404).json({ error: "not_prepaid_meter" });
+      return;
+    }
+    const topup = await createPrepaidTopup(dbPool, {
+      sn,
+      amountKwh,
+      amountMoney: typeof body.amount_money === "number" ? body.amount_money : null,
+      source: "panel",
+      ref: typeof body.ref === "string" ? body.ref : null,
+      note: typeof body.note === "string" ? body.note : null,
+      createdBy: req.authUser?.username ?? null
+    });
+    const updated = await getPrepaidSummary(dbPool, sn);
+    res.status(201).json({ topup, summary: updated });
+  } catch (error) {
+    console.error("[api] failed to create prepaid topup", { sn, message: error instanceof Error ? error.message : error });
+    res.status(500).json({ error: "failed_to_create_topup" });
   }
 });
 

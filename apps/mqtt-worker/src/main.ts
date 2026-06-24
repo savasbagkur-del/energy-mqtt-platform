@@ -36,6 +36,7 @@ import {
   upsertClientBinding,
   resolveSnsForClientId,
   triggerReconcileForSn,
+  evaluatePrepaidAutoCutoff,
   ADAPTIVE_GATING_FRACTION,
   ADAPTIVE_GATING_FLOOR_SEC,
   ADAPTIVE_GATING_CAP_SEC,
@@ -2758,6 +2759,18 @@ const logNormalizedMessage = async (topic: string, payload: Buffer): Promise<voi
       sn: resolved.sn,
       message
     });
+  }
+
+  if (normalized.method?.toLowerCase() === "update") {
+    try {
+      const cut = await evaluatePrepaidAutoCutoff(dbPool, resolved.sn);
+      if (cut) {
+        log.info("prepaid_auto_cutoff_triggered", { sn: resolved.sn });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "prepaid cutoff error";
+      console.error("[mqtt-worker] prepaid auto cutoff failed", { sn: resolved.sn, message });
+    }
   }
 
   // Telemetry-driven reconcile: wake the reconciler for this sn immediately instead of waiting out
