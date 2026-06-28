@@ -106,6 +106,10 @@ interface TelemetryMappedValues {
   reactivePowerKvar: number | null;
   powerFactor: number | null;
   energyImportKwh: number | null;
+  // ME372/MeterEye1014 optical registers (Acrel meters leave these null).
+  activeExportKwh: number | null;
+  reactiveQplusKvarh: number | null;
+  reactiveQminusKvarh: number | null;
   balance: number | null;
   switchState: number | null;
   prestate: string | null;
@@ -262,6 +266,9 @@ const mapTelemetryValues = (
     reactivePowerKvar: toNumeric(bySn?.Q),
     powerFactor: toNumeric(bySn?.PF),
     energyImportKwh: toNumeric(bySn?.EPI),
+    activeExportKwh: toNumeric(bySn?.EPE),
+    reactiveQplusKvarh: toNumeric(bySn?.EQI),
+    reactiveQminusKvarh: toNumeric(bySn?.EQE),
     balance: toNumeric(bySn?.Balance),
     // SwitchSta wins; fall back to AdfState1 bit-15 decode for meters that omit SwitchSta.
     switchState: resolveSwitchState(bySn?.SwitchSta, bySn?.AdfState1, allowAdfSwitchFallback),
@@ -397,10 +404,13 @@ const upsertDeviceLatestStateForDataUpdate = async (
       energy_flat_kwh,
       energy_valley_kwh,
       max_demand_kw,
+      active_export_kwh,
+      reactive_qplus_kvarh,
+      reactive_qminus_kvarh,
       updated_at
     ) VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-      $26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,NOW()
+      $26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,NOW()
     )
     ON CONFLICT (sn) DO UPDATE SET
       product_key = EXCLUDED.product_key,
@@ -442,6 +452,9 @@ const upsertDeviceLatestStateForDataUpdate = async (
       energy_flat_kwh = EXCLUDED.energy_flat_kwh,
       energy_valley_kwh = EXCLUDED.energy_valley_kwh,
       max_demand_kw = EXCLUDED.max_demand_kw,
+      active_export_kwh = EXCLUDED.active_export_kwh,
+      reactive_qplus_kvarh = EXCLUDED.reactive_qplus_kvarh,
+      reactive_qminus_kvarh = EXCLUDED.reactive_qminus_kvarh,
       updated_at = NOW()`,
     [
       params.sn,
@@ -483,7 +496,10 @@ const upsertDeviceLatestStateForDataUpdate = async (
       params.mapped.energyPeakKwh,
       params.mapped.energyFlatKwh,
       params.mapped.energyValleyKwh,
-      params.mapped.maxDemandKw
+      params.mapped.maxDemandKw,
+      params.mapped.activeExportKwh,
+      params.mapped.reactiveQplusKvarh,
+      params.mapped.reactiveQminusKvarh
     ]
   );
 };

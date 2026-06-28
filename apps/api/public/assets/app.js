@@ -1329,6 +1329,212 @@
     syncActiveCmd(deviceState.sn, cv);
   }
 
+  // ---- MeterEye1014 / Iskra ME372 optical (IEC 62056-21 Mode C) dedicated screen ----------
+  function isMe372Device(reg, tel) {
+    const model = reg && reg.model ? String(reg.model).toUpperCase() : "";
+    const pk = String((reg && reg.product_key) || (tel && tel.product_key) || "").toUpperCase();
+    const src = String((tel && tel.source) || "").toLowerCase();
+    const topic = String((tel && tel.last_topic) || "").toUpperCase();
+    return model.startsWith("METEREYE") || pk.includes("ME372") || topic.includes("ME372_IEC") ||
+      src.includes("me372") || src.includes("nano_esp32");
+  }
+
+  function me372Online(tel, reg) {
+    const lastSeen = (tel && tel.last_seen_at) || (reg && reg.last_seen_at) || null;
+    const online = lastSeen
+      ? (Date.now() - new Date(lastSeen).getTime() < state.settings.onlineWindowSec * 1000)
+      : false;
+    return { lastSeen, online };
+  }
+
+  function me372KpiHtml(tel) {
+    const m = tel || {};
+    const imp = m.energy_import_kwh, exp = m.active_export_kwh;
+    const net = imp != null ? (imp - (exp != null ? exp : 0)) : null;
+    const big = `<div class="me372-hero">
+      <div class="m-label">Aktif Enerji — İçe (import)</div>
+      <div class="me372-hero-val">${imp != null ? nf(imp, 1) : "—"}<small>kWh</small></div>
+      <div class="me372-hero-sub">Net aktif: ${net != null ? nf(net, 1) + " kWh" : "—"}</div>
+    </div>`;
+    const card = (label, val, unit, digits) =>
+      `<div class="metric"><div class="m-label">${label}</div><div class="m-val">${val != null ? nf(val, digits) : "—"}${unit ? `<small>${unit}</small>` : ""}</div></div>`;
+    const cards = `<div class="metric-cards" style="margin-top:14px">
+      ${card("Aktif Dışa (export)", exp, "kWh", 1)}
+      ${card("Reaktif Q+", m.reactive_qplus_kvarh, "kVArh", 1)}
+      ${card("Reaktif Q−", m.reactive_qminus_kvarh, "kVArh", 1)}
+      ${card("Maks. Talep", m.max_demand_kw, "kW", 3)}
+    </div>`;
+    return big + cards;
+  }
+
+  function me372OptHtml(tel, summary) {
+    const m = tel || {};
+    const s = (summary && summary.summary) || {};
+    return `<dt>Protokol</dt><dd>IEC 62056-21 · Mode C</dd>
+      <dt>Bağlantı</dt><dd>Optik prob (TTL)</dd>
+      <dt>Kaynak</dt><dd class="mono">${esc(m.source || "—")}</dd>
+      <dt>Son yöntem</dt><dd>${esc(m.last_method || s.method || "—")}</dd>
+      <dt>Son mesaj id</dt><dd class="mono">${esc(String(s.msgid != null ? s.msgid : (s.last_msgid != null ? s.last_msgid : "—")))}</dd>
+      <dt>Topic</dt><dd class="mono" style="word-break:break-all">${esc(m.last_topic || "—")}</dd>
+      <dt>Ürün anahtarı</dt><dd class="mono">${esc(m.product_key || "—")}</dd>`;
+  }
+
+  function me372ConnHtml(tel, online, lastSeen) {
+    const m = tel || {};
+    return `<dt>Durum</dt><dd>${onlineDot(online)}</dd>
+      <dt>Son okuma</dt><dd>${timeAgo(lastSeen)}</dd>
+      <dt>Son zaman</dt><dd>${fmtDateTime(lastSeen)}</dd>
+      <dt>Güncellendi</dt><dd>${fmtDateTime(m.updated_at)}</dd>`;
+  }
+
+  function applyMe372Dynamic(tel, reg, summary) {
+    const { lastSeen, online } = me372Online(tel, reg);
+    const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+    set("hdrPills", `${reg ? statusPill(reg.registry_status) : ""}${onlinePill(online)}`);
+    set("me372Kpi", me372KpiHtml(tel));
+    set("me372Opt", me372OptHtml(tel, summary));
+    set("me372Conn", me372ConnHtml(tel, online, lastSeen));
+  }
+
+  async function loadMe372Series(sn) {
+    const area = $("#me372ChartArea"); if (!area) return;
+    let data;
+    try { data = await api("GET", `/devices/${encodeURIComponent(sn)}/telemetry/series?range=${deviceState.range}`); }
+    catch (e) { area.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+    const pts = (data.points || []).filter((p) => p.energy_import_kwh != null);
+    if (pts.length < 1) {
+      area.innerHTML = `<div class="empty">Bu aralıkta okuma yok. Sayaç optik okuma gönderdikçe (≈15 sn) kümülatif enerji ve dönemsel tüketim burada belirir.</div>`;
+      return;
+    }
+    const toMs = (p) => new Date(p.t).getTime();
+    // Period consumption = positive deltas of the cumulative import register between buckets.
+    const deltas = [];
+    for (let i = 1; i < pts.length; i++) {
+      const d = pts[i].energy_import_kwh - pts[i - 1].energy_import_kwh;
+      deltas.push({ t: toMs(pts[i]), y: d >= 0 && d < 1e6 ? d : null });
+    }
+    const cumulative = lineChart([
+      { name: "Kümülatif enerji (kWh)", color: "var(--brand)", axis: "l", area: true, points: pts.map((p) => ({ t: toMs(p), y: p.energy_import_kwh })) }
+    ], { height: 210 });
+    const consumption = deltas.length ? lineChart([
+      { name: "Dönemsel tüketim (Δ kWh)", color: "var(--info)", axis: "l", area: true, points: deltas }
+    ], { height: 170 }) : `<div class="empty">Tüketim farkı için en az iki okuma gerekir.</div>`;
+    area.innerHTML = `<div style="margin-bottom:6px;font-size:12px;color:var(--muted)">Kümülatif Aktif Enerji</div>${cumulative}
+      <div style="margin:14px 0 6px;font-size:12px;color:var(--muted)">Dönemsel Tüketim</div>${consumption}`;
+  }
+
+  async function renderMe372Device(sn, tel, reg, reuse) {
+    deviceState.sn = sn;
+    let summary = null;
+    try { summary = await api("GET", `/devices/${encodeURIComponent(sn)}/summary`); } catch (e) { summary = null; }
+
+    if (reuse && view.getAttribute("data-device") === sn && view.getAttribute("data-kind") === "me372") {
+      applyMe372Dynamic(tel, reg, summary);
+      state.refresher = () => renderDevice(sn, true);
+      return;
+    }
+
+    view.innerHTML = `
+      <div class="page-head">
+        <div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <button class="btn sm ghost" id="devBack">← Cihazlar</button>
+            <h1 style="font-size:20px">${esc((reg && reg.label) || sn)}</h1>
+            <span id="hdrPills" style="display:inline-flex;gap:8px;flex-wrap:wrap"></span>
+            <span class="pill info" title="Model">${esc((reg && reg.model) || "MeterEye1014")} · Optik</span>
+          </div>
+          <div class="sub mono">${esc(sn)}${reg && reg.customer_name ? ` · ${esc(reg.customer_name)}` : ""}${reg && (reg.address_line || reg.city) ? ` · ${esc([reg.address_line, reg.district, reg.city].filter(Boolean).join(", "))}` : ""}</div>
+        </div>
+        <div class="head-actions">
+          <button class="btn" id="me372Reload"><svg viewBox="0 0 24 24" class="ic"><path d="M21 12a9 9 0 1 1-2.6-6.3M21 4v5h-5"/></svg>Yenile</button>
+          ${reg ? `<button class="btn" id="devEdit">Meta düzenle</button>` : ""}
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="ov-col">
+          <div class="panel">
+            <div class="panel-head"><h2>Enerji Sayaçları</h2><div class="panel-actions muted" style="font-size:12px">IEC 62056-21 Mode C</div></div>
+            <div class="panel-pad"><div id="me372Kpi"></div></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Enerji Trendi</h2>
+              <div class="panel-actions"><div class="seg" id="rangeSeg">
+                ${["6h", "24h", "7d", "30d"].map((r) => `<button data-v="${r}" class="${r === deviceState.range ? "active" : ""}">${r}</button>`).join("")}
+              </div></div>
+            </div>
+            <div class="panel-pad" id="me372ChartArea"><div class="loading">Grafik yükleniyor…</div></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Çevrimiçi / Çevrimdışı Geçmişi</h2>
+              <div class="panel-actions"><div class="seg" id="presSeg">
+                ${[["24", "24s"], ["72", "3g"], ["168", "7g"], ["720", "30g"]].map(([v, l]) => `<button data-v="${v}" class="${String(v) === String(deviceState.presenceHours) ? "active" : ""}">${l}</button>`).join("")}
+              </div></div>
+            </div>
+            <div class="panel-pad" id="presenceArea"><div class="loading">Yükleniyor…</div></div>
+          </div>
+        </div>
+
+        <div class="ov-col">
+          <div class="panel">
+            <div class="panel-head"><h2>Optik Okuma & Protokol</h2></div>
+            <div class="panel-pad"><dl class="kv" id="me372Opt"></dl></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Bağlantı</h2></div>
+            <div class="panel-pad"><dl class="kv" id="me372Conn"></dl></div>
+          </div>
+
+          ${reg ? `<div class="panel">
+            <div class="panel-head"><h2>Kayıt Bilgileri</h2><div class="panel-actions"><button class="btn sm ghost" id="devEdit2">Düzenle</button></div></div>
+            <div class="panel-pad">
+              <dl class="kv">
+                <dt>Müşteri</dt><dd>${esc(reg.customer_name || "—")}</dd>
+                <dt>Yerleşke / Bina</dt><dd>${esc([reg.site_name, reg.project_name].filter(Boolean).join(" / ") || "—")}</dd>
+                <dt>Abone No</dt><dd>${esc(reg.subscriber_no || "—")}</dd>
+                <dt>Mülk tipi</dt><dd>${esc(reg.property_type_label || "—")}</dd>
+                <dt>Adres</dt><dd>${esc([reg.address_line, reg.district, reg.city].filter(Boolean).join(", ") || "—")}</dd>
+                <dt>Tarife</dt><dd>${esc(reg.tariff || "—")}</dd>
+                <dt>Model</dt><dd>${esc(reg.model || "MeterEye1014")}</dd>
+                <dt>İzleme tipi</dt><dd>${esc(telemetryModeLabel(reg.telemetry_mode))}</dd>
+                <dt>Yaşam döngüsü</dt><dd><span class="pill neutral">${esc(reg.lifecycle_status)}</span></dd>
+                <dt>Ürün anahtarı</dt><dd class="mono">${esc(reg.product_key || "—")}</dd>
+              </dl>
+              <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+                ${reg.registry_status === "quarantined" ? `<button class="btn sm warn" id="lcApprove">Onayla (whitelist)</button>` : ""}
+                <button class="btn sm ghost" id="lcDecom">Devre dışı bırak</button>
+              </div>
+            </div>
+          </div>` : ""}
+        </div>
+      </div>`;
+    view.setAttribute("data-device", sn);
+    view.setAttribute("data-kind", "me372");
+
+    applyMe372Dynamic(tel, reg, summary);
+
+    $("#devBack").addEventListener("click", () => navigate("#/devices"));
+    $("#me372Reload").addEventListener("click", () => renderDevice(sn));
+    if (reg) { const open = () => openRegisterModal(reg); const e1 = $("#devEdit"), e2 = $("#devEdit2"); if (e1) e1.addEventListener("click", open); if (e2) e2.addEventListener("click", open); }
+    const ap = $("#lcApprove"); if (ap) ap.addEventListener("click", () => approveDevice(sn, () => { view.removeAttribute("data-device"); renderDevice(sn); }));
+    const dc = $("#lcDecom"); if (dc) dc.addEventListener("click", async () => { if (!confirm("Cihaz devre dışı bırakılsın mı?")) return; try { await api("POST", `/registry/devices/${encodeURIComponent(sn)}/lifecycle`, { lifecycle: "decommissioned" }); toast("Güncellendi", "", "success"); view.removeAttribute("data-device"); renderDevice(sn); } catch (e) { toast("Hata", e.message, "error"); } });
+    $$("#rangeSeg button", view).forEach((b) => b.addEventListener("click", () => {
+      $$("#rangeSeg button", view).forEach((x) => x.classList.remove("active")); b.classList.add("active");
+      deviceState.range = b.dataset.v; loadMe372Series(sn);
+    }));
+    $$("#presSeg button", view).forEach((b) => b.addEventListener("click", () => {
+      $$("#presSeg button", view).forEach((x) => x.classList.remove("active")); b.classList.add("active");
+      deviceState.presenceHours = Number(b.dataset.v); loadPresence(sn);
+    }));
+
+    loadMe372Series(sn);
+    loadPresence(sn);
+    state.refresher = () => renderDevice(sn, true);
+  }
+
   async function renderDevice(sn, silent) {
     deviceState.sn = sn;
     const reuse = silent && view.getAttribute("data-device") === sn;
@@ -1342,6 +1548,10 @@
       ]);
     } catch (e) { if (!silent) view.innerHTML = errorBox(e); return; }
     if (!tel && !cv && !reg) { view.innerHTML = errorBox({ message: "Cihaz bulunamadı." }); return; }
+
+    // MeterEye1014 (Iskra ME372 optical / IEC 62056-21 Mode C) ships cumulative energy registers,
+    // not live V/A/PF or a controllable relay — render a dedicated energy-focused screen.
+    if (isMe372Device(reg, tel)) { await renderMe372Device(sn, tel, reg, reuse); return; }
 
     if (reuse && view.getAttribute("data-device") === sn) {
       applyDeviceDynamic(tel, cv, reg);

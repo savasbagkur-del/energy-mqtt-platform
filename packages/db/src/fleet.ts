@@ -674,6 +674,9 @@ export interface DeviceTelemetrySnapshot {
   reactive_power_kvar: number | null;
   power_factor: number | null;
   energy_import_kwh: number | null;
+  active_export_kwh: number | null;
+  reactive_qplus_kvarh: number | null;
+  reactive_qminus_kvarh: number | null;
   balance: number | null;
   switch_state: number | null;
   prestate: string | null;
@@ -710,7 +713,8 @@ export const getDeviceTelemetry = async (
   const res = await pool.query(
     `SELECT sn, product_key, last_seen_at, last_method, last_topic, source,
             voltage_v, current_a, active_power_kw, reactive_power_kvar, power_factor,
-            energy_import_kwh, balance, switch_state, prestate, owe_money,
+            energy_import_kwh, active_export_kwh, reactive_qplus_kvarh, reactive_qminus_kvarh,
+            balance, switch_state, prestate, owe_money,
             alarm_a, alarm_b, adf_state_1, adf_state_2, rssi, channel, mac_address,
             voltage_b_v, voltage_c_v, current_b_a, current_c_a,
             active_power_a_kw, active_power_b_kw, active_power_c_kw,
@@ -735,6 +739,9 @@ export const getDeviceTelemetry = async (
     reactive_power_kvar: num(r.reactive_power_kvar),
     power_factor: num(r.power_factor),
     energy_import_kwh: num(r.energy_import_kwh),
+    active_export_kwh: num(r.active_export_kwh),
+    reactive_qplus_kvarh: num(r.reactive_qplus_kvarh),
+    reactive_qminus_kvarh: num(r.reactive_qminus_kvarh),
     balance: num(r.balance),
     switch_state: num(r.switch_state),
     prestate: (r.prestate as string) ?? null,

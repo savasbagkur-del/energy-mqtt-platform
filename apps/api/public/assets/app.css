@@ -486,6 +486,13 @@ table.data .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .metric .m-val { font-size: 21px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .metric .m-val small { font-size: 12px; color: var(--muted); font-weight: 700; margin-left: 3px; }
 
+/* MeterEye1014 (ME372 optical) energy hero card */
+.me372-hero { background: var(--brand-grad); color: var(--brand-ink); border-radius: var(--radius-sm); padding: 18px 20px; box-shadow: 0 8px 20px rgba(84,110,122,.22); }
+.me372-hero .m-label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; opacity: .9; }
+.me372-hero-val { font-size: 40px; font-weight: 800; margin-top: 6px; line-height: 1; font-variant-numeric: tabular-nums; }
+.me372-hero-val small { font-size: 16px; font-weight: 700; margin-left: 6px; opacity: .9; }
+.me372-hero-sub { margin-top: 10px; font-size: 13px; font-weight: 600; opacity: .92; }
+
 /* ============================================================ form hint */
 .hint { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.4; }
 
