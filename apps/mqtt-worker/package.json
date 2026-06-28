@@ -11,12 +11,13 @@
     "publish:test:login": "tsx src/publish-test.ts login",
     "publish:test:update": "tsx src/publish-test.ts update",
     "publish:test:operate": "tsx src/publish-test.ts operate",
+    "publish:test:me372": "tsx src/publish-test-me372.ts",
     "publish:test:ack-listener": "node -e \"console.warn('Deprecated: use SIMULATOR_MODE=true with pnpm --filter mqtt-worker dev')\"",
     "build": "tsc -p tsconfig.json",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test src/command-lifecycle.scenario.test.ts src/reconciler.test.ts src/device-cadence.test.ts src/meter-name.test.ts"
+    "test": "node --import tsx --test src/command-lifecycle.scenario.test.ts src/reconciler.test.ts src/device-cadence.test.ts src/meter-name.test.ts src/me372-bridge.test.ts"
   },
   "dependencies": {
     "@communication/contracts": "workspace:*",

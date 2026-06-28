@@ -210,6 +210,11 @@ export interface AppConfig {
   alertMinIntervalSec: number;
   /** HTTP timeout (ms) for a webhook POST; the worker never blocks on a slow webhook. */
   alertWebhookTimeoutMs: number;
+  /**
+   * Product key segment for ME372 optical bridge devices after translation to `data/up/...`.
+   * meter-bridge / Nano ESP32 publish on `energy/telemetry/<site>/<device>/up`.
+   */
+  me372ProductKey: string;
 }
 
 export const appConfig: AppConfig = Object.freeze({
@@ -257,5 +262,6 @@ export const appConfig: AppConfig = Object.freeze({
   deviceWhitelistEnabled: readBoolean(process.env.DEVICE_WHITELIST_ENABLED),
   alertWebhookUrl: readString(process.env.ALERT_WEBHOOK_URL),
   alertMinIntervalSec: readPositiveInt(process.env.ALERT_MIN_INTERVAL_SEC, 300),
-  alertWebhookTimeoutMs: readPositiveInt(process.env.ALERT_WEBHOOK_TIMEOUT_MS, 5000)
+  alertWebhookTimeoutMs: readPositiveInt(process.env.ALERT_WEBHOOK_TIMEOUT_MS, 5000),
+  me372ProductKey: readString(process.env.ME372_PRODUCT_KEY) ?? "ME372_IEC"
 });

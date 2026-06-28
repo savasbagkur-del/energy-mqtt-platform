@@ -45,7 +45,8 @@ import {
 import type { CommandRow } from "@communication/db";
 import {
   buildTopic,
-  normalizeIncomingMessage
+  normalizeIncomingMessage,
+  translateMe372BridgeMessage
 } from "@communication/mqtt";
 import mqtt, { type IClientOptions } from "mqtt";
 import { buildMeterName } from "./meter-name.js";
@@ -109,7 +110,15 @@ const dbConfig = {
 // `indicate/server/#`; subscribing to the broad `sys/#` / `indicate/#` would make the worker ingest
 // its OWN outbound commands as if they were device telemetry/ACKs (corrupting reported state and
 // causing false reconciliation). Devices report on `sys/dev/#`, `data/up/#`, `indicate/dev/#`.
-const SUB_TOPICS = ["sys/dev/#", "data/up/#", "indicate/dev/#", "presence/#", "meta/#"] as const;
+const SUB_TOPICS = [
+  "sys/dev/#",
+  "data/up/#",
+  "indicate/dev/#",
+  "presence/#",
+  "meta/#",
+  // meter-bridge / Nano ESP32 IEC Mode C optical readers (translated to data/up before ingest)
+  "energy/telemetry/+/+/up"
+] as const;
 
 /**
  * Actual subscribe filters. With MQTT_SHARED_GROUP set, wrap each topic as `$share/<group>/<topic>`
@@ -607,6 +616,19 @@ const maybeHandlePresenceOrMeta = async (topic: string, payloadText: string): Pr
 };
 
 const processInboundMessage = async (topic: string, payloadText: string): Promise<void> => {
+  const me372 = translateMe372BridgeMessage(topic, payloadText, appConfig.me372ProductKey);
+  if (me372) {
+    log.info("me372_bridge_translated", {
+      fromTopic: topic,
+      toTopic: me372.topic,
+      meterId: me372.meterId,
+      siteId: me372.siteId,
+      bridgeDeviceId: me372.deviceId
+    });
+    topic = me372.topic;
+    payloadText = me372.payloadText;
+  }
+
   if (await maybeHandlePresenceOrMeta(topic, payloadText)) {
     return;
   }
