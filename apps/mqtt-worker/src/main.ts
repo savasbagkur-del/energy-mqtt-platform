@@ -616,7 +616,12 @@ const maybeHandlePresenceOrMeta = async (topic: string, payloadText: string): Pr
 };
 
 const processInboundMessage = async (topic: string, payloadText: string): Promise<void> => {
-  const me372 = translateMe372BridgeMessage(topic, payloadText, appConfig.me372ProductKey);
+  const me372 = translateMe372BridgeMessage(
+    topic,
+    payloadText,
+    appConfig.me372ProductKey,
+    appConfig.me372Model
+  );
   if (me372) {
     log.info("me372_bridge_translated", {
       fromTopic: topic,

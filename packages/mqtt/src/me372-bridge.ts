@@ -5,6 +5,9 @@ export const ME372_BRIDGE_TOPIC_RE = /^energy\/telemetry\/([^/]+)\/([^/]+)\/up$/
 
 export const DEFAULT_ME372_PRODUCT_KEY = "ME372_IEC";
 
+/** Hardware model reported for ME372 optical bridge devices on app.volt4amper.com. */
+export const DEFAULT_ME372_MODEL = "MeterEye1014";
+
 const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
@@ -55,7 +58,8 @@ export interface Me372BridgeTranslation {
 export const translateMe372BridgeMessage = (
   topic: string,
   payloadText: string,
-  productKey: string = DEFAULT_ME372_PRODUCT_KEY
+  productKey: string = DEFAULT_ME372_PRODUCT_KEY,
+  model: string = DEFAULT_ME372_MODEL
 ): Me372BridgeTranslation | null => {
   const match = topic.match(ME372_BRIDGE_TOPIC_RE);
   if (!match) {
@@ -128,6 +132,7 @@ export const translateMe372BridgeMessage = (
     method: "update",
     msgid,
     timestamp,
+    model,
     reported,
     _me372_bridge: {
       site_id: asNonEmptyString(envelope.site_id) ?? siteId,

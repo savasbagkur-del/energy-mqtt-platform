@@ -43,14 +43,28 @@ test("translateMe372BridgeMessage maps envelope to data/up update", () => {
   const payload = JSON.parse(translated.payloadText) as {
     sn: string;
     method: string;
+    model: string;
     reported: Record<string, unknown>;
   };
   assert.equal(payload.sn, "50798309");
   assert.equal(payload.method, "update");
+  assert.equal(payload.model, "MeterEye1014");
   assert.equal(payload.reported.EPI, 44.9);
   assert.equal(payload.reported.MEPIMD, 0.074);
   assert.equal(payload.reported.EQI, 7.3);
   assert.equal(payload.reported.EQE, 19.8);
+});
+
+test("translateMe372BridgeMessage honors a custom model label", () => {
+  const translated = translateMe372BridgeMessage(
+    "energy/telemetry/site-001/meter-001/up",
+    JSON.stringify(SAMPLE_ENVELOPE),
+    "ME372_IEC",
+    "MeterEye1014-X"
+  );
+  assert.ok(translated);
+  const payload = JSON.parse(translated.payloadText) as { model: string };
+  assert.equal(payload.model, "MeterEye1014-X");
 });
 
 test("translateMe372BridgeMessage rejects missing energy field", () => {

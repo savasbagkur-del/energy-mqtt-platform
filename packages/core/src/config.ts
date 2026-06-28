@@ -215,6 +215,8 @@ export interface AppConfig {
    * meter-bridge / Nano ESP32 publish on `energy/telemetry/<site>/<device>/up`.
    */
   me372ProductKey: string;
+  /** Hardware model label reported for ME372 optical bridge devices (panel display). */
+  me372Model: string;
 }
 
 export const appConfig: AppConfig = Object.freeze({
@@ -263,5 +265,6 @@ export const appConfig: AppConfig = Object.freeze({
   alertWebhookUrl: readString(process.env.ALERT_WEBHOOK_URL),
   alertMinIntervalSec: readPositiveInt(process.env.ALERT_MIN_INTERVAL_SEC, 300),
   alertWebhookTimeoutMs: readPositiveInt(process.env.ALERT_WEBHOOK_TIMEOUT_MS, 5000),
-  me372ProductKey: readString(process.env.ME372_PRODUCT_KEY) ?? "ME372_IEC"
+  me372ProductKey: readString(process.env.ME372_PRODUCT_KEY) ?? "ME372_IEC",
+  me372Model: readString(process.env.ME372_MODEL) ?? "MeterEye1014"
 });

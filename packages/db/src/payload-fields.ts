@@ -90,11 +90,13 @@ export const extractDeviceMetadata = (
   payloadJson: Record<string, unknown> | null
 ): DeviceMetadataFields => {
   const devname = resolvePayloadString(payloadJson, "devname");
+  // An explicit `model` field (e.g. ME372 optical bridge) wins; otherwise derive from devname.
+  const explicitModel = resolvePayloadString(payloadJson, "model");
   return {
     devname,
     softcode: resolvePayloadString(payloadJson, "softcode"),
     softversion: resolvePayloadString(payloadJson, "softversion"),
     network: resolvePayloadNetwork(payloadJson),
-    model: resolveDeviceModel(devname)
+    model: explicitModel ?? resolveDeviceModel(devname)
   };
 };

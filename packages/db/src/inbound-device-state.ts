@@ -63,7 +63,9 @@ export const applyInboundDeviceAndLatestState = async (
     softcode: isLogin ? meta.softcode : null,
     softversion: isLogin ? meta.softversion : null,
     network: isLogin ? meta.network : null,
-    model: isLogin ? meta.model : null,
+    // Model persists from any message that explicitly carries it (e.g. ME372 bridge update),
+    // not just login. Real Acrel update frames omit it -> null -> COALESCE keeps existing.
+    model: meta.model,
     whitelistEnabled: options.whitelistEnabled ?? false
   };
 
